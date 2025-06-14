@@ -101,7 +101,7 @@ const AddPurchaseOrderForm = () => {
       return;
     }
 
-    axios.post('https://inventory-system-xf8x.onrender.com/purchase_orders/', {
+    axios.post(`https://inventory-system-xf8x.onrender.com/purchase_orders/`, {
       created_at: orderDate,
       items
     }).then(() => {
