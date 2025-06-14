@@ -1,6 +1,6 @@
 import requests
 
-BASE_URL = "http://127.0.0.1:8000/products/"
+BASE_URL = "https://inventory-system-xf8x.onrender.com/products"
 
 # Default values
 UNIT_COST = 10.0

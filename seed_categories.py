@@ -70,6 +70,8 @@ categories = [
     
 ]
 
+API_URL = "https://inventory-system-xf8x.onrender.com/categories/"
+
 for category in categories:
-    res = requests.post("http://127.0.0.1:8000/categories/", json=category)
+    res = requests.post(API_URL, json=category)
     print(f"{category['name']}: {res.status_code} - {res.text}")
