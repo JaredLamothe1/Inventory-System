@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from app.routes import vendor
 from app.routes import product
 from app.routes import purchase_order
 from app.routes import bulk_discount
@@ -25,7 +24,6 @@ app.add_middleware(
 )
 
 app.include_router(category.router)
-app.include_router(vendor.router)
 app.include_router(product.router)
 app.include_router(purchase_order.router)
 app.include_router(bulk_discount.router)
