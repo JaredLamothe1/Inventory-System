@@ -60,7 +60,7 @@ const ProductList = () => {
     if (selectedCategory !== 'all') {
       params.category_id = selectedCategory;
     }
-    axios.get('${import.meta.env.VITE_API_URL}/products/', { params })
+    axios.get('${import.meta.env.VITE_API_URL}/products', { params })
       .then((res) => {
         setProducts(res.data.products);
         setTotalPages(res.data.total_pages);

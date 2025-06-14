@@ -21,7 +21,7 @@ const AddPurchaseOrderForm = () => {
       setProducts(res.data.products || []);
     });
 
-    axios.get('h${import.meta.env.VITE_API_URL}/categories/').then((res) => {
+    axios.get(`${import.meta.env.VITE_API_URL}/categories/`).then((res) => {
       const sorted = res.data.sort((a: any, b: any) => a.name.localeCompare(b.name));
       const nameMap: Record<number, string> = {};
       const tierMap: Record<number, { min_qty: number, price: number }[]> = {};

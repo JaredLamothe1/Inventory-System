@@ -34,11 +34,11 @@ const AddSaleForm = () => {
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const productRes = await fetch("${import.meta.env.VITE_API_URL}/products/?limit=1000&page=0&sort_by=name&order=asc");
+        const productRes = await fetch(`${import.meta.env.VITE_API_URL}/products/?limit=1000&page=0&sort_by=name&order=asc`);
         const productData = await productRes.json();
         setProducts(productData.products ?? []);
 
-        const categoryRes = await fetch("${import.meta.env.VITE_API_URL}/categories/");
+        const categoryRes = await fetch(`${import.meta.env.VITE_API_URL}/categories/`);
         const categoryData = await categoryRes.json();
         setCategories(categoryData ?? []);
       } catch (err) {
