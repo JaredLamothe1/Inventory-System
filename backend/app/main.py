@@ -35,6 +35,6 @@ app.include_router(inventory_log.router)
 def read_root():
     return {"message": "Inventory backend is running!"}
 from app.database import Base, engine
-from app.models import product
+
 
 Base.metadata.create_all(bind=engine)
