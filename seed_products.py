@@ -1,6 +1,7 @@
 import requests
 
-BASE_URL = "https://inventory-system-xf8x.onrender.com/products"
+
+BASE_URL = "https://inventory-system-xf8x.onrender.com/products/"
 
 # Default values
 UNIT_COST = 10.0
@@ -9,6 +10,8 @@ RESTOCK_TARGET = 15
 STORAGE_SPACE = 1
 VENDOR_ID = 1
 
+
+# Category sale prices (to be used per product)
 CATEGORY_SALE_PRICES = {
     "Sol Remedies": 90,
     "CaSol Formulations": 100,
@@ -18,6 +21,7 @@ CATEGORY_SALE_PRICES = {
     "Other": 125
 }
 
+# Category IDs (must match database)
 CATEGORIES = {
     "Sol Remedies": 1,
     "CaSol Formulations": 2,
@@ -29,7 +33,7 @@ CATEGORIES = {
 # Full list of products categorized
 product_data = {
     "Sol Remedies": [
-        "AcnSol", "AddiSol (addiction)", "AdrnSol (CFS)", "AldeSol (alzheimer’s & dementia)", "AlpSol", "AppeSol (Appetite control) sugars & carbs", "ArbSol" "ArtSol",
+        "AcnSol", "AddiSol (addiction)", "AdrnSol (CFS)", "AldeSol (alzheimer’s & dementia)", "AlpSol", "AppeSol (Appetite control) sugars & carbs", "ArbSol", "ArtSol",
         "AstSol asthma", "AtsmSol (autism)", "BctSol", "Br1Sol", "Br2Sol", "CalmSol (adhd symptoms)",
         "CarSol (motion sickness)", "CephaSol", "ChemSol (chemotherapy and radiation therapy)", "ClcSol (celiac)",
         "CldSol (cold symptoms, staph & strep secondary infections)", "ColchiSol (gout)", "ColiSol (intestinal colic)",
@@ -78,14 +82,14 @@ product_data = {
 }
 
 
-
+# Post products
 for category_name, product_names in product_data.items():
     category_id = CATEGORIES[category_name]
     sale_price = CATEGORY_SALE_PRICES[category_name]
 
     for name in product_names:
         payload = {
-            "name": name.strip(),
+            "name": name,
             "unit_cost": UNIT_COST,
             "sale_price": sale_price,
             "reorder_threshold": REORDER_THRESHOLD,
@@ -95,14 +99,9 @@ for category_name, product_names in product_data.items():
             "category_id": category_id,
             "quantity_in_stock": 0
         }
+        res = requests.post(BASE_URL, json=payload)
+        if res.status_code != 201 and res.status_code != 200:
+            print(f"❌ {name} FAILED — {res.status_code}: {res.text}")
+        else:
+            print(f"✅ {name} added.")
 
-        try:
-            res = requests.post(BASE_URL, json=payload)
-            if res.status_code == 200:
-                print(f"✅ {name} added")
-            elif res.status_code == 400 and "already exists" in res.text:
-                print(f"⚠️ {name} already exists")
-            else:
-                print(f"❌ {name}: {res.status_code} - {res.text}")
-        except Exception as e:
-            print(f"🔥 Failed to add {name}: {e}")

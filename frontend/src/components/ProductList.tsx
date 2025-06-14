@@ -36,7 +36,7 @@ const ProductList = () => {
   const [sortOption, setSortOption] = useState<string>('name-asc');
 
   useEffect(() => {
-    axios.get('https://inventory-system-xf8x.onrender.com/categories')
+    axios.get('http://127.0.0.1:8000/categories')
       .then(res => {
         const withAll = [{ id: 'all', name: 'All' }, ...res.data];
         setCategories(withAll);
@@ -60,7 +60,7 @@ const ProductList = () => {
     if (selectedCategory !== 'all') {
       params.category_id = selectedCategory;
     }
-    axios.get('https://inventory-system-xf8x.onrender.com/products/', { params })
+    axios.get('http://127.0.0.1:8000/products/', { params })
       .then((res) => {
         setProducts(res.data.products);
         setTotalPages(res.data.total_pages);
@@ -93,7 +93,7 @@ const ProductList = () => {
   };
 
   const handleStockUpdate = (product: Product) => {
-    axios.put(`https://inventory-system-xf8x.onrender.com/products/${product.id}`, {
+    axios.put(`http://127.0.0.1:8000/products/${product.id}`, {
       ...product,
       quantity_in_stock: stockInput,
     }).then(res => {
