@@ -2,7 +2,39 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 
+type Product = {
+  id: number;
+  name: string;
+  category_name?: string;
+};
+
+type SaleItem = {
+  quantity: number;
+  unit_price: number;
+  product: Product;
+};
+
+type Sale = {
+  id: number;
+  created_at: string;
+  sale_date?: string;
+  items: SaleItem[];
+};
+
+type PurchaseItem = {
+  quantity: number;
+  unit_cost: number;
+  product: Product;
+};
+
+type PurchaseOrder = {
+  id: number;
+  created_at: string;
+  items: PurchaseItem[];
+};
+
 const TIME_OPTIONS = ["This Week", "This Month", "This Year", "All Time"];
+
 const getDateRange = (range: string): [Date, Date] => {
   const now = new Date();
   let start: Date;
@@ -25,9 +57,9 @@ const getDateRange = (range: string): [Date, Date] => {
 };
 
 const Analytics = () => {
-  const [sales, setSales] = useState([]);
-  const [purchases, setPurchases] = useState([]);
-  const [products, setProducts] = useState([]);
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [purchases, setPurchases] = useState<PurchaseOrder[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState("This Year");
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
