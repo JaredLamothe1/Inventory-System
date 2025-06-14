@@ -28,9 +28,9 @@ const Dashboard = () => {
     const fetchData = async () => {
       try {
         const [salesRes, productRes, purchaseRes] = await Promise.all([
-          axios.get(`${import.meta.env.VITE_API_URL}/sales`),
-          axios.get(`${import.meta.env.VITE_API_URL}/products?limit=1000`),
-          axios.get(`${import.meta.env.VITE_API_URL}/purchase_orders`),
+          axios.get(`${import.meta.env.VITE_API_URL}/sales/`),
+          axios.get(`${import.meta.env.VITE_API_URL}/products/?limit=1000`),
+          axios.get(`${import.meta.env.VITE_API_URL}/purchase_orders/`),
         ]);
         setSales(salesRes.data);
         setProducts(productRes.data.products || []);
