@@ -28,9 +28,9 @@ const Dashboard = () => {
     const fetchData = async () => {
       try {
         const [salesRes, productRes, purchaseRes] = await Promise.all([
-          axios.get(`${import.meta.env.VITE_API_BASE_URL}/sales`),
-          axios.get(`${import.meta.env.VITE_API_BASE_URL}/products?limit=1000`),
-          axios.get(`${import.meta.env.VITE_API_BASE_URL}/purchase_orders`),
+          axios.get(`https://inventory-system-xf8x.onrender.com/sales`),
+          axios.get(`https://inventory-system-xf8x.onrender.com/products?limit=1000`),
+          axios.get(`https://inventory-system-xf8x.onrender.com/purchase_orders`),
         ]);
         setSales(salesRes.data);
         setProducts(productRes.data.products || []);

@@ -67,9 +67,9 @@ const Analytics = () => {
   useEffect(() => {
     const fetchAll = async () => {
       const [salesRes, purchaseRes, productRes] = await Promise.all([
-        axios.get("http://127.0.0.1:8000/sales"),
-        axios.get("http://127.0.0.1:8000/purchase_orders"),
-        axios.get("http://127.0.0.1:8000/products?limit=1000"),
+        axios.get("https://inventory-system-xf8x.onrender.com/sales"),
+        axios.get("https://inventory-system-xf8x.onrender.com/purchase_orders"),
+        axios.get("https://inventory-system-xf8x.onrender.com/products?limit=1000"),
       ]);
       setSales(salesRes.data);
       setPurchases(purchaseRes.data);

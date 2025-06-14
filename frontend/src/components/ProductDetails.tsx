@@ -24,7 +24,7 @@ const ProductDetails = () => {
   const [stockInput, setStockInput] = useState<number>(0);
 
   useEffect(() => {
-    axios.get(`http://localhost:8000/products/${id}`).then(res => {
+    axios.get(`https://inventory-system-xf8x.onrender.com/products/${id}`).then(res => {
       setProduct(res.data);
       setFormData(res.data);
       setStockInput(res.data.quantity_in_stock);
@@ -38,21 +38,21 @@ const ProductDetails = () => {
   };
 
   const handleSave = () => {
-    axios.put(`http://localhost:8000/products/${id}`, formData).then(res => {
+    axios.put(`https://inventory-system-xf8x.onrender.com/products/${id}`, formData).then(res => {
       setProduct(res.data);
       setEditMode(false);
     });
   };
 
   const handleDelete = () => {
-    axios.delete(`http://localhost:8000/products/${id}`).then(() => {
+    axios.delete(`https://inventory-system-xf8x.onrender.com/products/${id}`).then(() => {
       navigate('/products');
     });
   };
 
   const handleQuickStockUpdate = () => {
     if (!product) return;
-    axios.put(`http://localhost:8000/products/${product.id}`, {
+    axios.put(`https://inventory-system-xf8x.onrender.com/products/${product.id}`, {
       ...product,
       quantity_in_stock: stockInput,
     }).then(res => {

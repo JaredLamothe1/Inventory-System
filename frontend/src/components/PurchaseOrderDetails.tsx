@@ -35,7 +35,7 @@ const PurchaseOrderDetails: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    axios.get(`http://127.0.0.1:8000/purchase_orders/${id}`)
+    axios.get(`https://inventory-system-xf8x.onrender.com/purchase_orders/${id}`)
       .then((res) => {
         setOrder(res.data);
         setLoading(false);

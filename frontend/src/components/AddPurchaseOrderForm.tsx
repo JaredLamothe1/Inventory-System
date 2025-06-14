@@ -15,13 +15,13 @@ const AddPurchaseOrderForm = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    axios.get('http://127.0.0.1:8000/products/', {
+    axios.get('https://inventory-system-xf8x.onrender.com/products/', {
       params: { page: 0, limit: 1000, sort_by: 'name', order: 'asc' }
     }).then((res) => {
       setProducts(res.data.products || []);
     });
 
-    axios.get('http://127.0.0.1:8000/categories/').then((res) => {
+    axios.get('https://inventory-system-xf8x.onrender.com/categories/').then((res) => {
       const sorted = res.data.sort((a: any, b: any) => a.name.localeCompare(b.name));
       const nameMap: Record<number, string> = {};
       const tierMap: Record<number, { min_qty: number, price: number }[]> = {};
@@ -101,7 +101,7 @@ const AddPurchaseOrderForm = () => {
       return;
     }
 
-    axios.post('http://127.0.0.1:8000/purchase_orders/', {
+    axios.post('https://inventory-system-xf8x.onrender.com/purchase_orders/', {
       created_at: orderDate,
       items
     }).then(() => {

@@ -8,7 +8,7 @@ const PurchaseOrdersPage = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    axios.get('http://127.0.0.1:8000/purchase_orders/')
+    axios.get('https://inventory-system-xf8x.onrender.com/purchase_orders/')
       .then((res) => {
         setOrders(res.data || []);
         setLoading(false);

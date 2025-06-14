@@ -12,7 +12,7 @@ const UpdateProductForm = ({ productId }: { productId: number }) => {
     });
 
     useEffect(() => {
-        axios.get(`http://127.0.0.1:8000/products/${productId}`)
+        axios.get(`https://inventory-system-xf8x.onrender.com/products/${productId}`)
             .then(response => {
                 setProduct(response.data);
             })
@@ -31,7 +31,7 @@ const UpdateProductForm = ({ productId }: { productId: number }) => {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            await axios.put(`http://127.0.0.1:8000/products/${productId}`, product);
+            await axios.put(`https://inventory-system-xf8x.onrender.com/products/${productId}`, product);
             alert('Product updated successfully!');
         } catch (error) {
             alert('Error updating product');

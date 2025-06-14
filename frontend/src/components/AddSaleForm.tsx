@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-
+https://inventory-system-cyan.vercel.app/dashboard
 interface Product {
   id: number;
   name: string;
@@ -34,11 +34,11 @@ const AddSaleForm = () => {
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const productRes = await fetch("http://127.0.0.1:8000/products/?limit=1000&page=0&sort_by=name&order=asc");
+        const productRes = await fetch("https://inventory-system-xf8x.onrender.com/products/?limit=1000&page=0&sort_by=name&order=asc");
         const productData = await productRes.json();
         setProducts(productData.products ?? []);
 
-        const categoryRes = await fetch("http://127.0.0.1:8000/categories/");
+        const categoryRes = await fetch("https://inventory-system-xf8x.onrender.com/categories/");
         const categoryData = await categoryRes.json();
         setCategories(categoryData ?? []);
       } catch (err) {
@@ -95,7 +95,7 @@ const AddSaleForm = () => {
       })),
     };
 
-    const res = await fetch("http://127.0.0.1:8000/sales/", {
+    const res = await fetch("https://inventory-system-xf8x.onrender.com/sales/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
