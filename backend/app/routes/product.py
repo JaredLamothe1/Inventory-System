@@ -44,7 +44,6 @@ def product_to_product_out(product: Product) -> ProductOut:
         reorder_threshold=product.reorder_threshold,
         restock_target=product.restock_target,
         storage_space=product.storage_space,
-        vendor_id=product.vendor_id,
         category_id=product.category_id,
         quantity_in_stock=product.quantity_in_stock,
         category_name=product.category.name if product.category else None
@@ -98,7 +97,6 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
         reorder_threshold=product.reorder_threshold,
         restock_target=product.restock_target,
         storage_space=product.storage_space,
-        vendor_id=product.vendor_id,
         category_id=product.category_id,
         quantity_in_stock=product.quantity_in_stock
     )
@@ -120,7 +118,6 @@ def update_product(product_id: int, product: ProductCreate, db: Session = Depend
     db_product.reorder_threshold = product.reorder_threshold
     db_product.restock_target = product.restock_target
     db_product.storage_space = product.storage_space
-    db_product.vendor_id = product.vendor_id
     db_product.category_id = product.category_id
     db_product.quantity_in_stock = product.quantity_in_stock
 
