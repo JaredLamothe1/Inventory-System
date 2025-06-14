@@ -8,7 +8,7 @@ const PurchaseOrdersPage = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    axios.get('${import.meta.env.VITE_API_URL}/purchase_orders/')
+    axios.get(`${import.meta.env.VITE_API_URL}/purchase_orders/`)
       .then((res) => {
         setOrders(res.data || []);
         setLoading(false);
