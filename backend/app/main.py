@@ -14,16 +14,16 @@ from app.routes import category
 
 
 app = FastAPI()
+from fastapi.middleware.cors import CORSMiddleware
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://inventory-system-cyan.vercel.app",
-                   "https://inventory-system-jaredlamothe1s-projects.vercel.app",
-                   "http://localhost:5173"
-                   ],  # Or specify the exact domain, e.g., ["http://localhost:5173"]
+    allow_origins=["*"],  # or restrict to ["https://your-vercel-url.vercel.app"]
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 app.include_router(category.router)
 app.include_router(vendor.router)
 app.include_router(product.router)
