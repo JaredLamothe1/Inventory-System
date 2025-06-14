@@ -135,11 +135,6 @@ const Dashboard = () => {
         </ChartCard>
       </div>
 
-      <ChartCard title="Monthly Revenue Trend">
-        <ResponsiveContainer width="100%" height={300}>
-          
-        </ResponsiveContainer>
-      </ChartCard>
     </div>
   );
 };
