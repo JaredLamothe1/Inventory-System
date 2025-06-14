@@ -1,0 +1,222 @@
+name,category_name,unit_cost,sale_price,reorder_threshold,restock_target,storage_space,vendor_id,quantity_in_stock,id
+cnSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+AddiSol (addiction),Sol Remedies,10.0,20.0,5,15,1,1,0
+AdrnSol (CFS),Sol Remedies,10.0,20.0,5,15,1,1,0
+AldeSol (alzheimer’s & dementia),Sol Remedies,10.0,20.0,5,15,1,1,0
+AlpSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+AppeSol (Appetite control) sugars & carbs,Sol Remedies,10.0,20.0,5,15,1,1,0
+ArbSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+ArtSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+AstSol asthma,Sol Remedies,10.0,20.0,5,15,1,1,0
+AtsmSol (autism),Sol Remedies,10.0,20.0,5,15,1,1,0
+BctSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+Br1Sol,Sol Remedies,10.0,20.0,5,15,1,1,0
+Br2Sol,Sol Remedies,10.0,20.0,5,15,1,1,0
+CalmSol (adhd symptoms),Sol Remedies,10.0,20.0,5,15,1,1,0
+CarSol (motion sickness),Sol Remedies,10.0,20.0,5,15,1,1,0
+CephaSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+ChemSol (chemotherapy and radiation therapy),Sol Remedies,10.0,20.0,5,15,1,1,0
+ClcSol (celiac),Sol Remedies,10.0,20.0,5,15,1,1,0
+"CldSol (cold symptoms, staph & strep secondary infections)",Sol Remedies,10.0,20.0,5,15,1,1,0
+ColchiSol (gout),Sol Remedies,10.0,20.0,5,15,1,1,0
+ColiSol (intestinal colic),Sol Remedies,10.0,20.0,5,15,1,1,0
+CompuSol (OCD),Sol Remedies,10.0,20.0,5,15,1,1,0
+ConSol (concussion),Sol Remedies,10.0,20.0,5,15,1,1,0
+CrdioSol (hypertension),Sol Remedies,10.0,20.0,5,15,1,1,0
+CraveSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+DandruSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+DarciSol (dark circles),Sol Remedies,10.0,20.0,5,15,1,1,0
+DermaSol (molluscum contagiosum),Sol Remedies,10.0,20.0,5,15,1,1,0
+DiaSol (diarrhea),Sol Remedies,10.0,20.0,5,15,1,1,0
+DiscuSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+DntSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+DtxSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+EchoSol (symptoms of viral infections),Sol Remedies,10.0,20.0,5,15,1,1,0
+EczSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+EleSol (ADD),Sol Remedies,10.0,20.0,5,15,1,1,0
+EnceSol (encephalitis),Sol Remedies,10.0,20.0,5,15,1,1,0
+EntrSol (intestinal),Sol Remedies,10.0,20.0,5,15,1,1,0
+EnuSol (bedwetting),Sol Remedies,10.0,20.0,5,15,1,1,0
+E&Psol (Previously EstroSol),Sol Remedies,10.0,20.0,5,15,1,1,0
+EpiSol (epilepsy),Sol Remedies,10.0,20.0,5,15,1,1,0
+FemaSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+FibroSol (fibroids),Sol Remedies,10.0,20.0,5,15,1,1,0
+FlatuSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+GastroSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+"GeoSol(radon, etc.)",Sol Remedies,10.0,20.0,5,15,1,1,0
+HemSol(anemia),Sol Remedies,10.0,20.0,5,15,1,1,0
+HistaSol(inflammation),Sol Remedies,10.0,20.0,5,15,1,1,0
+HpaSolhepatitis,Sol Remedies,10.0,20.0,5,15,1,1,0
+HydraSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+ImmuSol (stimulate immune),Sol Remedies,10.0,20.0,5,15,1,1,0
+IpcaSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+IxoSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+"KaliSol(warts, hpv)",Sol Remedies,10.0,20.0,5,15,1,1,0
+KiSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+"KlimaSol (hot flashes, menopause)",Sol Remedies,10.0,20.0,5,15,1,1,0
+Lipisol (cholesterSol),Sol Remedies,10.0,20.0,5,15,1,1,0
+LmSol I,Sol Remedies,10.0,20.0,5,15,1,1,0
+LmSol II,Sol Remedies,10.0,20.0,5,15,1,1,0
+LmfSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+LPLSol (lichen planus),Sol Remedies,10.0,20.0,5,15,1,1,0
+LScSol (lichen scherosis),Sol Remedies,10.0,20.0,5,15,1,1,0
+LpsSol (lupus),Sol Remedies,10.0,20.0,5,15,1,1,0
+LycoSol F,Sol Remedies,10.0,20.0,5,15,1,1,0
+LycoSol M,Sol Remedies,10.0,20.0,5,15,1,1,0
+MSol (melanin),Sol Remedies,10.0,20.0,5,15,1,1,0
+MagSol (muscle sopasms & restless leg),Sol Remedies,10.0,20.0,5,15,1,1,0
+MeniSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+MetroSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+"MitoSol(now contains 1,2 & 3)",Sol Remedies,10.0,20.0,5,15,1,1,0
+MpSol (myofascial pain),Sol Remedies,10.0,20.0,5,15,1,1,0
+MrgSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+MsthnSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+MtlSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+MycSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+NeurSol (anxiety),Sol Remedies,10.0,20.0,5,15,1,1,0
+NeutraSol (manic depressive),Sol Remedies,10.0,20.0,5,15,1,1,0
+NrvSol (nerves),Sol Remedies,10.0,20.0,5,15,1,1,0
+OcSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+OligoSol (trace elements absorption & utilization),Sol Remedies,10.0,20.0,5,15,1,1,0
+OnySol (nails),Sol Remedies,10.0,20.0,5,15,1,1,0
+Optisol(vision/glaucoma/cataracts),Sol Remedies,10.0,20.0,5,15,1,1,0
+ostSol F,Sol Remedies,10.0,20.0,5,15,1,1,0
+OstSol M,Sol Remedies,10.0,20.0,5,15,1,1,0
+OtiSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+OxaSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+PanSol (InsuSol) (diabetes),Sol Remedies,10.0,20.0,5,15,1,1,0
+ParaSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+ParkiSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+PhobSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+PlasmaSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+PnmoSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+PrctSol (hemorrhoids),Sol Remedies,10.0,20.0,5,15,1,1,0
+PrstSol (health of the prostate),Sol Remedies,10.0,20.0,5,15,1,1,0
+PsrSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+RejuveSol F (convalescence),Sol Remedies,10.0,20.0,5,15,1,1,0
+RejuveSol M (convalescence),Sol Remedies,10.0,20.0,5,15,1,1,0
+ResiSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+"RetroSol (forgetfulness, momeory)",Sol Remedies,10.0,20.0,5,15,1,1,0
+RevitaSol (skin Integrity),Sol Remedies,10.0,20.0,5,15,1,1,0
+RogaSol (hair integrity),Sol Remedies,10.0,20.0,5,15,1,1,0
+RoseSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+ScaSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+SclrSol (MS),Sol Remedies,10.0,20.0,5,15,1,1,0
+SeroSol (depression),Sol Remedies,10.0,20.0,5,15,1,1,0
+SlimSol (appetite in general),Sol Remedies,10.0,20.0,5,15,1,1,0
+SnSol (sinus & nose),Sol Remedies,10.0,20.0,5,15,1,1,0
+SnoSol (snoring),Sol Remedies,10.0,20.0,5,15,1,1,0
+SomniSol (sleep irregularities),Sol Remedies,10.0,20.0,5,15,1,1,0
+SorSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+StreSol (PTSD) amygdala,Sol Remedies,10.0,20.0,5,15,1,1,0
+StonSol (gallbladder/kidney stones),Sol Remedies,10.0,20.0,5,15,1,1,0
+surgiSol(p/s),Sol Remedies,10.0,20.0,5,15,1,1,0
+SympaSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+TSol previouslt called ThyroSol (stim thyroid),Sol Remedies,10.0,20.0,5,15,1,1,0
+TemaSol (TMJ),Sol Remedies,10.0,20.0,5,15,1,1,0
+TinniSol (tinnitus),Sol Remedies,10.0,20.0,5,15,1,1,0
+TndSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+TourSol (tourette),Sol Remedies,10.0,20.0,5,15,1,1,0
+TravSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+TstSol (previouslt named TestoSol),Sol Remedies,10.0,20.0,5,15,1,1,0
+TxoSol (behavior problems/childish behavior),Sol Remedies,10.0,20.0,5,15,1,1,0
+UriSol(UTI -bactieria/viruses/bladder),Sol Remedies,10.0,20.0,5,15,1,1,0
+VCCSol P (preventative),Sol Remedies,10.0,20.0,5,15,1,1,0
+VCCSol T(treatment),Sol Remedies,10.0,20.0,5,15,1,1,0
+VerSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+VertiSol(vertigo),Sol Remedies,10.0,20.0,5,15,1,1,0
+VitaSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+VitiSol,Sol Remedies,10.0,20.0,5,15,1,1,0
+VrSol 23,Sol Remedies,10.0,20.0,5,15,1,1,0
+VrSol SZ (simplex and zoster),Sol Remedies,10.0,20.0,5,15,1,1,0
+XeroSol (dry mouth/dry eyes),Sol Remedies,10.0,20.0,5,15,1,1,0
+ZincuSol (restless leg),Sol Remedies,10.0,20.0,5,15,1,1,0
+BraCaSol (brain),CaSol Formulations,10.0,20.0,5,15,1,1,0,156.0
+CaSol,CaSol Formulations,10.0,20.0,5,15,1,1,0,157.0
+CerCaSol (cervix),CaSol Formulations,10.0,20.0,5,15,1,1,0,158.0
+"EsCaSol (esophageal, gastric)",CaSol Formulations,10.0,20.0,5,15,1,1,0,159.0
+HpaCaSol(liver),CaSol Formulations,10.0,20.0,5,15,1,1,0,160.0
+KiCaSol (kidney),CaSol Formulations,10.0,20.0,5,15,1,1,0,161.0
+LkiCaSol,CaSol Formulations,10.0,20.0,5,15,1,1,0,162.0
+"LuCaSol(lung, mesothelioma)",CaSol Formulations,10.0,20.0,5,15,1,1,0,163.0
+MaCaSol (breast),CaSol Formulations,10.0,20.0,5,15,1,1,0,164.0
+MeCaSol (skin) previouslt labeled MelaCaSol,CaSol Formulations,10.0,20.0,5,15,1,1,0,165.0
+MyeolCaSol (blood),CaSol Formulations,10.0,20.0,5,15,1,1,0,166.0
+OsCaSol (bone),CaSol Formulations,10.0,20.0,5,15,1,1,0,167.0
+OvCaSol (ovarioan),CaSol Formulations,10.0,20.0,5,15,1,1,0,168.0
+PanCaSol (pancreas) currently pancreasol,CaSol Formulations,10.0,20.0,5,15,1,1,0,169.0
+"ReCaSol (colon, rectal)",CaSol Formulations,10.0,20.0,5,15,1,1,0,170.0
+UteCaSol,CaSol Formulations,10.0,20.0,5,15,1,1,0,171.0
+AcnSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,172.0
+AddiSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,173.0
+AdrnSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,174.0
+AlpSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,175.0
+ArtSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,176.0
+AtsmSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,177.0
+AtxSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,178.0
+AutoSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,179.0
+ClcSol X (celiac),Anti Formulations,10.0,20.0,5,15,1,1,0,180.0
+CoilSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,181.0
+CompuSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,182.0
+DemSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,183.0
+EczSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,184.0
+EleSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,185.0
+E&PSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,186.0
+EpiSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,187.0
+GastroSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,188.0
+HPASol X,Anti Formulations,10.0,20.0,5,15,1,1,0,189.0
+HydraSolX,Anti Formulations,10.0,20.0,5,15,1,1,0,190.0
+LmSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,191.0
+LPLSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,192.0
+LScSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,193.0
+LpsSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,194.0
+MarSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,195.0
+MetroSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,196.0
+MPSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,197.0
+MsthnSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,198.0
+NrvSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,199.0
+NeutraSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,200.0
+PanSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,201.0
+ParkiSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,202.0
+PmfSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,203.0
+PcoSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,204.0
+PSRSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,205.0
+SclrSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,206.0
+SeroSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,207.0
+SpirSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,208.0
+TstSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,209.0
+TinniSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,210.0
+TourSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,211.0
+TSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,212.0
+VitiSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,213.0
+XeroSol X,Anti Formulations,10.0,20.0,5,15,1,1,0,214.0
+AlcSol A,A Formulations,10.0,20.0,5,15,1,1,0,215.0
+BondSol A,A Formulations,10.0,20.0,5,15,1,1,0,216.0
+IbeeSol XA,A Formulations,10.0,20.0,5,15,1,1,0,217.0
+MtlSol A,A Formulations,10.0,20.0,5,15,1,1,0,218.0
+AllrSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,219.0
+AlmSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,220.0
+BBYSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,221.0
+BeefSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,222.0
+CanSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,223.0
+ChxSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,224.0
+CitruSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,225.0
+ClcSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,226.0
+DyeSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,227.0
+EgSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,228.0
+Equesol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,229.0
+FelSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,230.0
+GalSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,231.0
+Hrmsol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,232.0
+MlkSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,233.0
+MolSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,234.0
+OctoSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,235.0
+PrkSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,236.0
+PreSol I ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,237.0
+PreSol II ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,238.0
+SubSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,239.0
+SugSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,240.0
+TmtSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,241.0
+TurSol ALG,ALG Formulations,10.0,20.0,5,15,1,1,0,242.0
+McSol,Other,10.0,20.0,5,15,1,1,0,243.0
+McSol X,Other,10.0,20.0,5,15,1,1,0,244.0

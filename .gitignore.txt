@@ -1,0 +1,22 @@
+# === Python backend ===
+
+__pycache__/     # This is where Python stores temporary files after running your code
+*.pyc            # Ignore all compiled Python files (not needed in Git)
+.venv/           # This is your virtual environment folder (where pip installs libraries)
+
+# === Node/React frontend ===
+
+node_modules/    # Big folder where npm installs all React libraries — recreate it with `npm install`
+dist/            # Temporary build files created when you run `npm run build`
+
+# === Environment variables ===
+
+.env             # This file stores sensitive info like your database password — never commit this
+.env.local       # Same as above — local machine config
+.env.*           # Wildcard — ignores any `.env.whatever` file
+
+# === General cleanup ===
+
+*.log            # Log files that your app might create — not needed in the repo
+.DS_Store        # macOS creates this in every folder — not needed
+.vscode/         # VS Code settings folder — personal, not needed in project
