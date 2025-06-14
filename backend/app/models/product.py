@@ -19,7 +19,6 @@ class Product(Base):
     sale_price = Column(Float, nullable=False)
 
     # Relationships
-    vendor = relationship("Vendor")
     category = relationship("Category", back_populates="products")
     bulk_discounts = relationship("BulkDiscount", back_populates="product")
 
