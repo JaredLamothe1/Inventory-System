@@ -12,7 +12,7 @@ const UpdateProductForm = ({ productId }: { productId: number }) => {
     });
 
     useEffect(() => {
-        axios.get(`https://inventory-system-xf8x.onrender.com/products/${productId}`)
+        axios.get(`${import.meta.env.VITE_API_URL}/products/${productId}`)
             .then(response => {
                 setProduct(response.data);
             })
@@ -31,7 +31,7 @@ const UpdateProductForm = ({ productId }: { productId: number }) => {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            await axios.put(`https://inventory-system-xf8x.onrender.com/products/${productId}`, product);
+            await axios.put(`${import.meta.env.VITE_API_URL}/products/${productId}`, product);
             alert('Product updated successfully!');
         } catch (error) {
             alert('Error updating product');

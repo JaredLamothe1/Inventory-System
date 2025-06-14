@@ -28,7 +28,7 @@ const SaleDetails = () => {
 
   useEffect(() => {
     const fetchSale = async () => {
-      const res = await fetch(`https://inventory-system-xf8x.onrender.com/sales/${id}`);
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/sales/${id}`);
       const data = await res.json();
       setSale(data);
     };

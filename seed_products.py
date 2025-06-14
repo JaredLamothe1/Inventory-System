@@ -8,7 +8,7 @@ UNIT_COST = 10.0
 REORDER_THRESHOLD = 5
 RESTOCK_TARGET = 15
 STORAGE_SPACE = 1
-VENDOR_ID = 1
+
 
 
 # Category sale prices (to be used per product)
@@ -95,7 +95,6 @@ for category_name, product_names in product_data.items():
             "reorder_threshold": REORDER_THRESHOLD,
             "restock_target": RESTOCK_TARGET,
             "storage_space": STORAGE_SPACE,
-            "vendor_id": VENDOR_ID,
             "category_id": category_id,
             "quantity_in_stock": 0
         }

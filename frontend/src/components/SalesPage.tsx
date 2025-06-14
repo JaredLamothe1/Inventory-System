@@ -45,7 +45,7 @@ const SalesPage = () => {
 
   useEffect(() => {
     const fetchSales = async () => {
-      const res = await fetch("https://inventory-system-xf8x.onrender.com/sales/");
+      const res = await fetch("${import.meta.env.VITE_API_URL}/sales/");
       const data = await res.json();
       const sorted = data.sort((a: Sale, b: Sale) => {
         const dateA = new Date(a.sale_date ?? a.created_at);

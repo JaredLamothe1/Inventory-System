@@ -15,13 +15,13 @@ const AddPurchaseOrderForm = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    axios.get('https://inventory-system-xf8x.onrender.com/products/', {
+    axios.get('${import.meta.env.VITE_API_URL}/products/', {
       params: { page: 0, limit: 1000, sort_by: 'name', order: 'asc' }
     }).then((res) => {
       setProducts(res.data.products || []);
     });
 
-    axios.get('https://inventory-system-xf8x.onrender.com/categories/').then((res) => {
+    axios.get('h${import.meta.env.VITE_API_URL}/categories/').then((res) => {
       const sorted = res.data.sort((a: any, b: any) => a.name.localeCompare(b.name));
       const nameMap: Record<number, string> = {};
       const tierMap: Record<number, { min_qty: number, price: number }[]> = {};

@@ -7,7 +7,6 @@ class ProductCreate(BaseModel):
     reorder_threshold: int
     restock_target: int
     storage_space: int
-    vendor_id: Optional[int] = None
     category_id: int
     quantity_in_stock: int
     sale_price: Optional[float] = None

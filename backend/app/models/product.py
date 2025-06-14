@@ -13,7 +13,7 @@ class Product(Base):
     reorder_threshold = Column(Integer, nullable=False)
     restock_target = Column(Integer, nullable=False, default=0)
     storage_space = Column(Float, nullable=True)
-    vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=True)
+
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
     quantity_in_stock = Column(Integer, nullable=False, default=0)
     sale_price = Column(Float, nullable=False)

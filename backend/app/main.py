@@ -16,7 +16,10 @@ from app.routes import category
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Or specify the exact domain, e.g., ["http://localhost:5173"]
+    allow_origins=["https://inventory-system-cyan.vercel.app",
+                   "https://inventory-system-jaredlamothe1s-projects.vercel.app",
+                   "http://localhost:5173"
+                   ],  # Or specify the exact domain, e.g., ["http://localhost:5173"]
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

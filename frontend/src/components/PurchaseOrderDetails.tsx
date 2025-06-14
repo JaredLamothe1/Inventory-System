@@ -35,7 +35,7 @@ const PurchaseOrderDetails: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    axios.get(`https://inventory-system-xf8x.onrender.com/purchase_orders/${id}`)
+    axios.get(`${import.meta.env.VITE_API_URL}/purchase_orders/${id}`)
       .then((res) => {
         setOrder(res.data);
         setLoading(false);
