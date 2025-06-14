@@ -15,7 +15,7 @@ const AddPurchaseOrderForm = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    axios.get('${import.meta.env.VITE_API_URL}/products/', {
+    axios.get(`${import.meta.env.VITE_API_URL}/products/`, {
       params: { page: 0, limit: 1000, sort_by: 'name', order: 'asc' }
     }).then((res) => {
       setProducts(res.data.products || []);

@@ -95,7 +95,7 @@ const AddSaleForm = () => {
       })),
     };
 
-    const res = await fetch("${import.meta.env.VITE_API_URL}/sales/", {
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/sales/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
