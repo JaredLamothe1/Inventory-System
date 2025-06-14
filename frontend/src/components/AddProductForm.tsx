@@ -1,12 +1,12 @@
 // src/components/AddProductForm.tsx
-import React, { useState } from "react";
+import { useState } from "react";
 import axios from "axios";
 
 interface AddProductFormProps {
   closeForm?: () => void;
 }
 
-const AddProductForm: React.FC<AddProductFormProps> = ({ closeForm }) => {
+const AddProductForm = ({ closeForm }: AddProductFormProps) => {
   const [name, setName] = useState("");
   const [unitCost, setUnitCost] = useState(0);
   const [reorderThreshold, setReorderThreshold] = useState(0);
@@ -28,7 +28,10 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ closeForm }) => {
     };
 
     try {
-      const response = await axios.post("http://localhost:8000/products/", newProduct);
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/products/`,
+        newProduct
+      );
       console.log("Product created:", response.data);
       setMessage("Product added successfully!");
       setName("");
@@ -38,7 +41,7 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ closeForm }) => {
       setQuantityInStock(0);
       closeForm?.();
     } catch (error) {
-      console.error("There was an error creating the product:", error);
+      console.error("Error creating product:", error);
       setMessage("There was an error adding the product. Please try again.");
     }
   };
@@ -48,6 +51,7 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ closeForm }) => {
       <form onSubmit={handleSubmit} className="space-y-4">
         <h2 className="text-xl font-bold">Add New Product</h2>
         {message && <p className="text-center text-lg font-semibold">{message}</p>}
+
         <div>
           <label htmlFor="name" className="block text-sm font-medium">Product Name</label>
           <input
@@ -59,6 +63,7 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ closeForm }) => {
             className="w-full p-2 border border-gray-300 rounded"
           />
         </div>
+
         <div>
           <label htmlFor="unitCost" className="block text-sm font-medium">Unit Cost</label>
           <input
@@ -70,6 +75,7 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ closeForm }) => {
             className="w-full p-2 border border-gray-300 rounded"
           />
         </div>
+
         <div>
           <label htmlFor="reorderThreshold" className="block text-sm font-medium">Reorder Threshold</label>
           <input
@@ -81,6 +87,7 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ closeForm }) => {
             className="w-full p-2 border border-gray-300 rounded"
           />
         </div>
+
         <div>
           <label htmlFor="storageSpace" className="block text-sm font-medium">Storage Space</label>
           <input
@@ -92,6 +99,7 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ closeForm }) => {
             className="w-full p-2 border border-gray-300 rounded"
           />
         </div>
+
         <div>
           <label htmlFor="quantityInStock" className="block text-sm font-medium">Quantity in Stock</label>
           <input
@@ -103,14 +111,13 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ closeForm }) => {
             className="w-full p-2 border border-gray-300 rounded"
           />
         </div>
-        <div>
-          <button
-            type="submit"
-            className="w-full p-2 bg-blue-500 text-white rounded hover:bg-blue-700"
-          >
-            Add Product
-          </button>
-        </div>
+
+        <button
+          type="submit"
+          className="w-full p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+        >
+          Add Product
+        </button>
       </form>
     </div>
   );

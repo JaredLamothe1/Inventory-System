@@ -28,9 +28,9 @@ const Dashboard = () => {
     const fetchData = async () => {
       try {
         const [salesRes, productRes, purchaseRes] = await Promise.all([
-          axios.get("http://127.0.0.1:8000/sales"),
-          axios.get("http://127.0.0.1:8000/products?limit=1000"),
-          axios.get("http://127.0.0.1:8000/purchase_orders"),
+          axios.get(`${import.meta.env.VITE_API_BASE_URL}/sales`),
+          axios.get(`${import.meta.env.VITE_API_BASE_URL}/products?limit=1000`),
+          axios.get(`${import.meta.env.VITE_API_BASE_URL}/purchase_orders`),
         ]);
         setSales(salesRes.data);
         setProducts(productRes.data.products || []);
@@ -45,6 +45,7 @@ const Dashboard = () => {
 
   if (loading) return <div className="p-6">Loading...</div>;
 
+  // Map product_id to list of costs
   const productCostMap: Record<number, number[]> = {};
   purchases.forEach((p: any) => {
     const arr = productCostMap[p.product_id] || [];
@@ -114,14 +115,7 @@ const Dashboard = () => {
         <ChartCard title="Revenue by Category">
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
-              <Pie
-                dataKey="value"
-                data={categoryChartData}
-                cx="50%"
-                cy="50%"
-                outerRadius={100}
-                label
-              >
+              <Pie dataKey="value" data={categoryChartData} cx="50%" cy="50%" outerRadius={100} label>
                 {categoryChartData.map((_, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
@@ -161,28 +155,14 @@ const Dashboard = () => {
   );
 };
 
-const MetricCard = ({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: string | number;
-  color: string;
-}) => (
+const MetricCard = ({ label, value, color }: { label: string; value: string | number; color: string }) => (
   <div className="bg-white shadow rounded p-4">
     <h2 className="text-gray-500 text-sm">{label}</h2>
     <p className={`text-2xl font-bold text-${color}-600`}>{value}</p>
   </div>
 );
 
-const ChartCard = ({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) => (
+const ChartCard = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <div className="bg-white p-6 rounded shadow">
     <h2 className="text-xl font-bold mb-4">{title}</h2>
     {children}
