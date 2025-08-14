@@ -2,7 +2,6 @@ from pydantic import BaseModel
 from typing import List
 from datetime import datetime
 
-
 class CategoryOut(BaseModel):
     id: int
     name: str
@@ -11,27 +10,23 @@ class CategoryOut(BaseModel):
         "from_attributes": True
     }
 
-
 class ProductOut(BaseModel):
     id: int
     name: str
-    category: CategoryOut  # ✅ Added this
+    category: CategoryOut
 
     model_config = {
         "from_attributes": True
     }
-
 
 class PurchaseOrderItemCreate(BaseModel):
     product_id: int
     quantity: int
     unit_cost: float
 
-
 class PurchaseOrderCreate(BaseModel):
     created_at: datetime
     items: List[PurchaseOrderItemCreate]
-
 
 class PurchaseOrderItemOut(BaseModel):
     id: int
@@ -44,11 +39,11 @@ class PurchaseOrderItemOut(BaseModel):
         "from_attributes": True
     }
 
-
 class PurchaseOrderOut(BaseModel):
     id: int
     created_at: datetime
     items: List[PurchaseOrderItemOut]
+    user_id: int  # Added for user scoping
 
     model_config = {
         "from_attributes": True

@@ -1,129 +1,162 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from "react";
+import api from "@/api";
+import { useNavigate } from "react-router-dom";
 
-const AddPurchaseOrderForm = () => {
-  const [products, setProducts] = useState<any[]>([]);
-  const [orderItems, setOrderItems] = useState<{ [key: number]: number }>({});
-  const [orderDate, setOrderDate] = useState<string>('');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+/* -------- Types -------- */
+interface Product {
+  id: number;
+  name: string;
+  category_id: number;
+}
+
+interface PurchaseTier {
+  threshold: number;
+  price: number;
+}
+
+interface Category {
+  id: number;
+  name: string;
+  base_purchase_price: number;       // always a number
+  purchase_tiers: PurchaseTier[];    // thresholds & prices always numbers
+}
+
+/* -------- Component -------- */
+export default function AddPurchaseOrderForm() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
-  const [categoryNames, setCategoryNames] = useState<Record<number, string>>({});
-  const [categoryPriceTiers, setCategoryPriceTiers] = useState<Record<number, { min_qty: number, price: number }[]>>({});
+  const [orderItems, setOrderItems] = useState<Record<number, number>>({});
   const [categoryQuantities, setCategoryQuantities] = useState<Record<number, number>>({});
+  const [orderDate, setOrderDate] = useState("");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const navigate = useNavigate();
 
+  // Fetch products + categories
   useEffect(() => {
-    axios.get(`${import.meta.env.VITE_API_URL}/products/`, {
-      params: { page: 0, limit: 1000, sort_by: 'name', order: 'asc' }
-    }).then((res) => {
-      setProducts(res.data.products || []);
-    });
+    api
+      .get("/products/", { params: { page: 0, limit: 1000, sort_by: "name", order: "asc" } })
+      .then((res) => setProducts(res.data.products || []))
+      .catch(() => setProducts([]));
 
-    axios.get(`${import.meta.env.VITE_API_URL}/categories/`).then((res) => {
-      const sorted = res.data.sort((a: any, b: any) => a.name.localeCompare(b.name));
-      const nameMap: Record<number, string> = {};
-      const tierMap: Record<number, { min_qty: number, price: number }[]> = {};
-
-      sorted.forEach((cat: any) => {
-        nameMap[cat.id] = cat.name;
-        tierMap[cat.id] = cat.price_tiers || [];
-      });
-
-      setCategoryNames(nameMap);
-      setCategoryPriceTiers(tierMap);
-      setSelectedCategoryId(sorted[0]?.id ?? null);
-    });
+    api
+      .get("/categories/")
+      .then((res) => {
+        const cats: Category[] = res.data.map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          base_purchase_price: Number(c.base_purchase_price) || 0,
+          purchase_tiers: (c.purchase_tiers || []).map((t: any) => ({
+            threshold: Number(t.threshold),
+            price: Number(t.price),
+          })),
+        }));
+        setCategories(cats);
+        if (cats.length) setSelectedCategoryId(cats[0].id);
+      })
+      .catch(() => setCategories([]));
   }, []);
 
-  const updateQuantity = (productId: number, quantity: number) => {
+  // Update quantities and per-category totals
+  function updateQuantity(productId: number, qty: number) {
     setOrderItems((prev) => {
-      const updated = { ...prev, [productId]: quantity };
-      const newTotals: Record<number, number> = {};
-
-      for (const p of products) {
+      const updated = { ...prev, [productId]: qty };
+      const totals: Record<number, number> = {};
+      products.forEach((p) => {
         const q = updated[p.id] || 0;
-        newTotals[p.category_id] = (newTotals[p.category_id] || 0) + q;
-      }
-
-      setCategoryQuantities(newTotals);
+        totals[p.category_id] = (totals[p.category_id] || 0) + q;
+      });
+      setCategoryQuantities(totals);
       return updated;
     });
-  };
+  }
 
-  const getCategoryUnitPrice = (categoryId: number): number => {
-    const qty = categoryQuantities[categoryId] || 0;
-    const tiers = categoryPriceTiers[categoryId] || [];
-    let price = 0;
-    for (const tier of tiers) {
-      if (qty >= tier.min_qty) {
-        price = tier.price;
-      }
-    }
+  // Determine unit price based on category's tiers or base price
+  function getCategoryUnitPrice(catId: number): number {
+    const cat = categories.find((c) => c.id === catId);
+    if (!cat) return 0;
+    const qty = categoryQuantities[catId] || 0;
+    let price = cat.base_purchase_price;
+    cat.purchase_tiers
+      .sort((a, b) => a.threshold - b.threshold)
+      .forEach((tier) => {
+        if (qty >= tier.threshold) {
+          price = tier.price;
+        }
+      });
     return price;
-  };
+  }
 
-  const getNextTierInfo = (categoryId: number) => {
-    const qty = categoryQuantities[categoryId] || 0;
-    const tiers = [...(categoryPriceTiers[categoryId] || [])].sort((a, b) => a.min_qty - b.min_qty);
-    for (const tier of tiers) {
-      if (qty < tier.min_qty) {
-        return { needed: tier.min_qty - qty, nextPrice: tier.price, nextQty: tier.min_qty };
+  // Next tier info
+  function getNextTierInfo(catId: number) {
+    const cat = categories.find((c) => c.id === catId);
+    if (!cat) return null;
+    const qty = categoryQuantities[catId] || 0;
+    const sorted = [...cat.purchase_tiers].sort((a, b) => a.threshold - b.threshold);
+    for (const tier of sorted) {
+      if (qty < tier.threshold) {
+        return {
+          needed: tier.threshold - qty,
+          nextPrice: tier.price,
+          nextQty: tier.threshold,
+        };
       }
     }
     return null;
-  };
+  }
 
-  const totalCost = Object.entries(orderItems).reduce((sum, [id, qty]) => {
-    const product = products.find(p => p.id === Number(id));
-    if (!product) return sum;
-    const unit = getCategoryUnitPrice(product.category_id);
-    return sum + (unit * qty);
+  // Filter visible products
+  const visibleProducts = selectedCategoryId == null
+    ? products
+    : products.filter((p) => p.category_id === selectedCategoryId);
+
+  // Compute total cost
+  const totalCost = Object.entries(orderItems).reduce((sum, [idStr, qty]) => {
+    const id = Number(idStr);
+    const prod = products.find((p) => p.id === id);
+    if (!prod) return sum;
+    return sum + getCategoryUnitPrice(prod.category_id) * qty;
   }, 0);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Submit handler
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const items = Object.entries(orderItems)
-      .filter(([_, quantity]) => quantity > 0)
-      .map(([id, quantity]) => {
-        const product = products.find(p => p.id === Number(id));
-        const unit_cost = product ? getCategoryUnitPrice(product.category_id) : 0;
+      .filter(([, qty]) => qty > 0)
+      .map(([idStr, qty]) => {
+        const prodId = Number(idStr);
+        const prod = products.find((p) => p.id === prodId)!;
         return {
-          product_id: Number(id),
-          quantity,
-          unit_cost
+          product_id: prodId,
+          quantity: qty,
+          unit_cost: getCategoryUnitPrice(prod.category_id),
         };
       });
 
     if (!orderDate || items.length === 0) {
-      setErrorMessage('Please select at least one product and date.');
+      setErrorMessage("Please select a date and add at least one item.");
       return;
     }
 
-    axios.post(`https://inventory-system-xf8x.onrender.com/purchase_orders/`, {
-      created_at: orderDate,
-      items
-    }).then(() => {
-      navigate('/purchase-orders');
-    }).catch(() => {
-      setErrorMessage('Failed to create purchase order.');
-    });
-  };
-
-  const visibleProducts = selectedCategoryId === null
-    ? products
-    : products.filter(p => p.category_id === selectedCategoryId);
-
-  const currentPrice = selectedCategoryId ? getCategoryUnitPrice(selectedCategoryId) : 0;
-  const tierProgress = selectedCategoryId ? getNextTierInfo(selectedCategoryId) : null;
+    api
+      .post("/purchase_orders/", { created_at: orderDate, items })
+      .then(() => navigate("/purchase-orders"))
+      .catch(() => setErrorMessage("Failed to create purchase order."));
+  }
 
   return (
     <div className="max-w-7xl mx-auto p-6">
       <h2 className="text-2xl font-bold mb-4">Create Purchase Order</h2>
-      {errorMessage && <div className="text-red-600 bg-red-100 p-3 rounded mb-4">{errorMessage}</div>}
+
+      {errorMessage && (
+        <div className="text-red-600 bg-red-100 p-3 rounded mb-4">
+          {errorMessage}
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Date */}
         <div>
           <label className="block text-sm font-medium mb-1">Order Date</label>
           <input
@@ -135,30 +168,43 @@ const AddPurchaseOrderForm = () => {
           />
         </div>
 
+        {/* Category selector */}
         <div className="flex flex-wrap gap-2 mb-4">
-          {Object.keys(categoryNames).map((id) => (
+          {categories.map((cat) => (
             <button
-              key={id}
+              key={cat.id}
               type="button"
-              className={`px-4 py-2 rounded ${selectedCategoryId === Number(id) ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
-              onClick={() => setSelectedCategoryId(Number(id))}
+              onClick={() => setSelectedCategoryId(cat.id)}
+              className={`px-4 py-2 rounded ${
+                selectedCategoryId === cat.id
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-200 hover:bg-gray-300"
+              }`}
             >
-              {categoryNames[Number(id)]}
+              {cat.name}
             </button>
           ))}
         </div>
 
-        {selectedCategoryId && (
+        {/* Unit price & tier info */}
+        {selectedCategoryId != null && (
           <div className="mb-4">
-            <p className="font-semibold text-lg">💰 Price: ${currentPrice.toFixed(2)} per unit</p>
-            {tierProgress && (
+            <p className="font-semibold text-lg">
+              💰 Unit price:{" "}
+              <strong>${getCategoryUnitPrice(selectedCategoryId).toFixed(2)}</strong>
+            </p>
+            {getNextTierInfo(selectedCategoryId) && (
               <p className="text-sm text-gray-600">
-                📈 {categoryQuantities[selectedCategoryId] || 0}/{tierProgress.nextQty} units — {tierProgress.needed} more to reach ${tierProgress.nextPrice.toFixed(2)}/unit
+                📈 {categoryQuantities[selectedCategoryId] || 0}/
+                {getNextTierInfo(selectedCategoryId)!.nextQty} units —{" "}
+                {getNextTierInfo(selectedCategoryId)!.needed} more to reach $
+                {getNextTierInfo(selectedCategoryId)!.nextPrice.toFixed(2)}/unit
               </p>
             )}
           </div>
         )}
 
+        {/* Products table */}
         <div className="overflow-x-auto">
           <table className="min-w-full border text-sm">
             <thead className="bg-gray-200">
@@ -169,22 +215,26 @@ const AddPurchaseOrderForm = () => {
               </tr>
             </thead>
             <tbody>
-              {visibleProducts.map((product) => {
-                const qty = orderItems[product.id] || 0;
-                const subtotal = qty * currentPrice;
+              {visibleProducts.map((prod) => {
+                const qty = orderItems[prod.id] || 0;
+                const unit = getCategoryUnitPrice(prod.category_id);
                 return (
-                  <tr key={product.id}>
-                    <td className="border px-4 py-2">{product.name}</td>
+                  <tr key={prod.id}>
+                    <td className="border px-4 py-2">{prod.name}</td>
                     <td className="border px-4 py-2">
                       <input
                         type="number"
                         min={0}
                         value={qty}
-                        onChange={(e) => updateQuantity(product.id, Number(e.target.value))}
+                        onChange={(e) =>
+                          updateQuantity(prod.id, Number(e.target.value))
+                        }
                         className="p-1 border rounded w-20"
                       />
                     </td>
-                    <td className="border px-4 py-2">${subtotal.toFixed(2)}</td>
+                    <td className="border px-4 py-2">
+                      ${ (unit * qty).toFixed(2) }
+                    </td>
                   </tr>
                 );
               })}
@@ -192,13 +242,17 @@ const AddPurchaseOrderForm = () => {
           </table>
         </div>
 
-        <div className="text-right text-lg font-semibold pt-4">Total: ${totalCost.toFixed(2)}</div>
+        {/* Total */}
+        <div className="text-right text-lg font-semibold pt-4">
+          Total: ${totalCost.toFixed(2)}
+        </div>
 
+        {/* Actions */}
         <div className="flex justify-between gap-4 mt-6">
           <button
             type="button"
+            onClick={() => navigate("/purchase-orders")}
             className="w-1/2 bg-gray-300 hover:bg-gray-400 text-black font-bold py-2 px-4 rounded"
-            onClick={() => navigate('/purchase-orders')}
           >
             Cancel
           </button>
@@ -212,6 +266,4 @@ const AddPurchaseOrderForm = () => {
       </form>
     </div>
   );
-};
-
-export default AddPurchaseOrderForm;
+}

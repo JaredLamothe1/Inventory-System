@@ -2,14 +2,17 @@ from sqlalchemy import Column, Integer, ForeignKey, DateTime, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
+from app.models.user import User
 
 class PurchaseOrder(Base):
     __tablename__ = "purchase_orders"
 
     id = Column(Integer, primary_key=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
     items = relationship("PurchaseOrderItem", back_populates="order", cascade="all, delete-orphan")
+    user = relationship("User")
 
 
 class PurchaseOrderItem(Base):

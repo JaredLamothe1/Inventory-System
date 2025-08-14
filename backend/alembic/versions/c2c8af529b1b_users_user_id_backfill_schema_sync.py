@@ -1,0 +1,285 @@
+"""users + user_id backfill + schema sync
+
+Revision ID: c2c8af529b1b
+Revises: 81756258d390
+Create Date: 2025-08-14 16:47:59.026193
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+from sqlalchemy import text
+
+# revision identifiers, used by Alembic.
+revision: str = 'c2c8af529b1b'
+down_revision: Union[str, Sequence[str], None] = '81756258d390'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    # --- CREATE core new tables first ---------------------------------------
+    op.create_table(
+        'users',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('username', sa.String(), nullable=False),
+        sa.Column('email', sa.String(), nullable=False),
+        sa.Column('full_name', sa.String(), nullable=True),
+        sa.Column('hashed_password', sa.String(), nullable=False),
+        sa.Column('is_admin', sa.Boolean(), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+        sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
+    op.create_index(op.f('ix_users_id'), 'users', ['id'], unique=False)
+    op.create_index(op.f('ix_users_username'), 'users', ['username'], unique=True)
+
+    op.create_table(
+        'password_resets',
+        sa.Column('id', sa.String(), nullable=False),
+        sa.Column('user_id', sa.Integer(), nullable=False),
+        sa.Column('token_hash', sa.String(length=128), nullable=False),
+        sa.Column('expires_at', sa.DateTime(), nullable=False),
+        sa.Column('used', sa.Boolean(), nullable=True),
+        sa.Column('created_at', sa.DateTime(), nullable=False),
+        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+        sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_password_resets_created_at'), 'password_resets', ['created_at'], unique=False)
+    op.create_index(op.f('ix_password_resets_expires_at'), 'password_resets', ['expires_at'], unique=False)
+    op.create_index(op.f('ix_password_resets_token_hash'), 'password_resets', ['token_hash'], unique=False)
+    op.create_index(op.f('ix_password_resets_used'), 'password_resets', ['used'], unique=False)
+    op.create_index(op.f('ix_password_resets_user_id'), 'password_resets', ['user_id'], unique=False)
+    op.create_index('ix_password_resets_user_recent', 'password_resets', ['user_id', 'created_at'], unique=False)
+
+    op.create_table(
+        'product_collections',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('user_id', sa.Integer(), nullable=False),
+        sa.Column('name', sa.String(), nullable=False),
+        sa.Column('description', sa.String(), nullable=True),
+        sa.Column('color', sa.String(), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+        sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('user_id', 'name', name='uq_collection_user_name')
+    )
+    op.create_index(op.f('ix_product_collections_id'), 'product_collections', ['id'], unique=False)
+    op.create_index(op.f('ix_product_collections_user_id'), 'product_collections', ['user_id'], unique=False)
+
+    op.create_table(
+        'category_purchase_tiers',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('category_id', sa.Integer(), nullable=False),
+        sa.Column('user_id', sa.Integer(), nullable=False),
+        sa.Column('threshold', sa.Integer(), nullable=False),
+        sa.Column('price', sa.Numeric(precision=10, scale=2), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.CheckConstraint('price >= 0', name='ck_price_nonnegative'),
+        sa.CheckConstraint('threshold >= 0', name='ck_threshold_nonnegative'),
+        sa.ForeignKeyConstraint(['category_id'], ['categories.id'], ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+        sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('category_id', 'threshold', name='uq_category_threshold')
+    )
+    op.create_index(op.f('ix_category_purchase_tiers_category_id'), 'category_purchase_tiers', ['category_id'], unique=False)
+    op.create_index(op.f('ix_category_purchase_tiers_id'), 'category_purchase_tiers', ['id'], unique=False)
+    op.create_index(op.f('ix_category_purchase_tiers_user_id'), 'category_purchase_tiers', ['user_id'], unique=False)
+    op.create_index('ix_tier_category_threshold', 'category_purchase_tiers', ['category_id', 'threshold'], unique=False)
+
+    # Map after users/products exist (products table is already present in the DB)
+    op.create_table(
+        'product_collection_map',
+        sa.Column('product_id', sa.Integer(), nullable=False),
+        sa.Column('collection_id', sa.Integer(), nullable=False),
+        sa.ForeignKeyConstraint(['collection_id'], ['product_collections.id'], ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['product_id'], ['products.id'], ondelete='CASCADE'),
+        sa.PrimaryKeyConstraint('product_id', 'collection_id')
+    )
+
+    # --- OPTIONAL: drop deprecated tables (delete these if you still use those tables)
+    op.drop_index(op.f('ix_bulk_discounts_id'), table_name='bulk_discounts')
+    op.drop_table('bulk_discounts')
+    op.drop_index(op.f('ix_inventory_logs_id'), table_name='inventory_logs')
+    op.drop_table('inventory_logs')
+    op.drop_index(op.f('ix_vendors_id'), table_name='vendors')
+    op.drop_table('vendors')
+
+    # --- ALTER existing tables (add new columns/FKs) -------------------------
+    # categories
+    op.add_column('categories', sa.Column('user_id', sa.Integer(), nullable=True))  # nullable first
+    op.add_column('categories', sa.Column('description', sa.String(), nullable=True))
+    op.add_column('categories', sa.Column('base_purchase_price', sa.Float(), nullable=True))
+    op.add_column('categories', sa.Column('parent_id', sa.Integer(), nullable=True))
+    op.add_column('categories', sa.Column('is_active', sa.Boolean(), nullable=True))
+    op.drop_constraint(op.f('categories_name_key'), 'categories', type_='unique')
+    op.create_index(op.f('ix_categories_parent_id'), 'categories', ['parent_id'], unique=False)
+    op.create_index(op.f('ix_categories_user_id'), 'categories', ['user_id'], unique=False)
+    op.create_index('ix_categories_user_parent', 'categories', ['user_id', 'parent_id'], unique=False)
+    op.create_unique_constraint('uq_categories_user_name', 'categories', ['user_id', 'name'])
+    op.create_foreign_key(None, 'categories', 'categories', ['parent_id'], ['id'], ondelete='SET NULL')
+    op.create_foreign_key(None, 'categories', 'users', ['user_id'], ['id'], ondelete='CASCADE')
+
+    # products
+    op.add_column('products', sa.Column('user_id', sa.Integer(), nullable=True))  # nullable first
+    op.add_column('products', sa.Column('sku', sa.String(), nullable=True))
+    op.add_column('products', sa.Column('description', sa.String(), nullable=True))
+    op.add_column('products', sa.Column('notes', sa.String(), nullable=True))
+    op.alter_column('products', 'unit_cost', existing_type=sa.DOUBLE_PRECISION(precision=53), nullable=True)
+    op.alter_column('products', 'sale_price', existing_type=sa.DOUBLE_PRECISION(precision=53), nullable=True)
+    op.alter_column('products', 'category_id', existing_type=sa.INTEGER(), nullable=True)
+    op.drop_constraint(op.f('products_name_key'), 'products', type_='unique')
+    op.create_index(op.f('ix_products_category_id'), 'products', ['category_id'], unique=False)
+    op.create_index(op.f('ix_products_sku'), 'products', ['sku'], unique=False)
+    op.create_index('ix_products_user_category', 'products', ['user_id', 'category_id'], unique=False)
+    op.create_index(op.f('ix_products_user_id'), 'products', ['user_id'], unique=False)
+    op.create_unique_constraint('uq_products_user_name', 'products', ['user_id', 'name'])
+    op.drop_constraint(op.f('products_category_id_fkey'), 'products', type_='foreignkey')
+    op.create_foreign_key(None, 'products', 'users', ['user_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key(None, 'products', 'categories', ['category_id'], ['id'], ondelete='SET NULL')
+
+    # purchase_orders
+    op.add_column('purchase_orders', sa.Column('user_id', sa.Integer(), nullable=True))  # nullable first
+    op.create_foreign_key(None, 'purchase_orders', 'users', ['user_id'], ['id'])
+
+    # sales
+    op.add_column('sales', sa.Column('user_id', sa.Integer(), nullable=True))  # nullable first
+    op.create_foreign_key(None, 'sales', 'users', ['user_id'], ['id'])
+
+    # --- DATA MIGRATION: insert owner + backfill ----------------------------
+    conn = op.get_bind()
+
+    owner_email = "owner@example.com"  # <<< CHANGE if desired
+    owner_username = "owner"           # <<< CHANGE if desired
+    owner_hash = "$2b$12$SnADlvkvPbyzZPC9tYNYW..BuBIBBW67W93Z/3zxTx22ldIfg2sgu"  # <<< bcrypt hash (full string)
+
+    owner_id = conn.execute(
+        text("""
+            INSERT INTO users (email, username, hashed_password, is_admin, created_at)
+            VALUES (:e, :u, :p, false, now())
+            RETURNING id
+        """),
+        {"e": owner_email, "u": owner_username, "p": owner_hash}
+    ).scalar()
+
+    # Backfill user_id on existing rows
+    for t in ["categories", "products", "purchase_orders", "sales"]:
+        conn.execute(text(f"UPDATE {t} SET user_id = :uid WHERE user_id IS NULL"), {"uid": owner_id})
+
+    # --- CONSTRAINT TIGHTENING: now make user_id NOT NULL -------------------
+    op.alter_column('categories', 'user_id', existing_type=sa.Integer(), nullable=False)
+    op.alter_column('products', 'user_id', existing_type=sa.Integer(), nullable=False)
+    op.alter_column('purchase_orders', 'user_id', existing_type=sa.Integer(), nullable=False)
+    op.alter_column('sales', 'user_id', existing_type=sa.Integer(), nullable=False)
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    # reverse tightening
+    op.alter_column('sales', 'user_id', existing_type=sa.Integer(), nullable=True)
+    op.alter_column('purchase_orders', 'user_id', existing_type=sa.Integer(), nullable=True)
+    op.alter_column('products', 'user_id', existing_type=sa.Integer(), nullable=True)
+    op.alter_column('categories', 'user_id', existing_type=sa.Integer(), nullable=True)
+
+    # drop added FKs and indexes on existing tables
+    op.drop_constraint(None, 'sales', type_='foreignkey')
+    op.drop_column('sales', 'user_id')
+
+    op.drop_constraint(None, 'purchase_orders', type_='foreignkey')
+    op.drop_column('purchase_orders', 'user_id')
+
+    op.drop_constraint(None, 'products', type_='foreignkey')
+    op.drop_constraint(None, 'products', type_='foreignkey')
+    op.create_foreign_key(op.f('products_category_id_fkey'), 'products', 'categories', ['category_id'], ['id'])
+    op.drop_constraint('uq_products_user_name', 'products', type_='unique')
+    op.drop_index(op.f('ix_products_user_id'), table_name='products')
+    op.drop_index('ix_products_user_category', table_name='products')
+    op.drop_index(op.f('ix_products_sku'), table_name='products')
+    op.drop_index(op.f('ix_products_category_id'), table_name='products')
+    op.create_unique_constraint(op.f('products_name_key'), 'products', ['name'], postgresql_nulls_not_distinct=False)
+    op.alter_column('products', 'category_id', existing_type=sa.INTEGER(), nullable=False)
+    op.alter_column('products', 'sale_price', existing_type=sa.DOUBLE_PRECISION(precision=53), nullable=False)
+    op.alter_column('products', 'unit_cost', existing_type=sa.DOUBLE_PRECISION(precision=53), nullable=False)
+    op.drop_column('products', 'notes')
+    op.drop_column('products', 'description')
+    op.drop_column('products', 'sku')
+    op.drop_column('products', 'user_id')
+
+    op.drop_constraint(None, 'categories', type_='foreignkey')
+    op.drop_constraint(None, 'categories', type_='foreignkey')
+    op.drop_constraint('uq_categories_user_name', 'categories', type_='unique')
+    op.drop_index('ix_categories_user_parent', table_name='categories')
+    op.drop_index(op.f('ix_categories_user_id'), table_name='categories')
+    op.drop_index(op.f('ix_categories_parent_id'), table_name='categories')
+    op.create_unique_constraint(op.f('categories_name_key'), 'categories', ['name'], postgresql_nulls_not_distinct=False)
+    op.drop_column('categories', 'is_active')
+    op.drop_column('categories', 'parent_id')
+    op.drop_column('categories', 'base_purchase_price')
+    op.drop_column('categories', 'description')
+    op.drop_column('categories', 'user_id')
+
+    # drop new tables
+    op.drop_table('product_collection_map')
+    op.drop_index('ix_tier_category_threshold', table_name='category_purchase_tiers')
+    op.drop_index(op.f('ix_category_purchase_tiers_user_id'), table_name='category_purchase_tiers')
+    op.drop_index(op.f('ix_category_purchase_tiers_id'), table_name='category_purchase_tiers')
+    op.drop_index(op.f('ix_category_purchase_tiers_category_id'), table_name='category_purchase_tiers')
+    op.drop_table('category_purchase_tiers')
+    op.drop_index(op.f('ix_product_collections_user_id'), table_name='product_collections')
+    op.drop_index(op.f('ix_product_collections_id'), table_name='product_collections')
+    op.drop_table('product_collections')
+    op.drop_index('ix_password_resets_user_recent', table_name='password_resets')
+    op.drop_index(op.f('ix_password_resets_user_id'), table_name='password_resets')
+    op.drop_index(op.f('ix_password_resets_used'), table_name='password_resets')
+    op.drop_index(op.f('ix_password_resets_token_hash'), table_name='password_resets')
+    op.drop_index(op.f('ix_password_resets_expires_at'), table_name='password_resets')
+    op.drop_index(op.f('ix_password_resets_created_at'), table_name='password_resets')
+    op.drop_table('password_resets')
+    op.drop_index(op.f('ix_users_username'), table_name='users')
+    op.drop_index(op.f('ix_users_id'), table_name='users')
+    op.drop_index(op.f('ix_users_email'), table_name='users')
+    op.drop_table('users')
+
+    # re-create deprecated tables if you truly need to roll back
+    op.create_table(
+        'vendors',
+        sa.Column('id', sa.INTEGER(), autoincrement=True, nullable=False),
+        sa.Column('name', sa.VARCHAR(), autoincrement=False, nullable=False),
+        sa.Column('contact_email', sa.VARCHAR(), autoincrement=False, nullable=True),
+        sa.Column('phone', sa.VARCHAR(), autoincrement=False, nullable=True),
+        sa.Column('notes', sa.TEXT(), autoincrement=False, nullable=True),
+        sa.PrimaryKeyConstraint('id', name=op.f('vendors_pkey')),
+        sa.UniqueConstraint('name', name=op.f('vendors_name_key'),
+                            postgresql_include=[], postgresql_nulls_not_distinct=False)
+    )
+    op.create_index(op.f('ix_vendors_id'), 'vendors', ['id'], unique=False)
+
+    op.create_table(
+        'inventory_logs',
+        sa.Column('id', sa.INTEGER(), autoincrement=True, nullable=False),
+        sa.Column('product_id', sa.INTEGER(), autoincrement=False, nullable=False),
+        sa.Column('change_type', sa.VARCHAR(), autoincrement=False, nullable=False),
+        sa.Column('change_amount', sa.INTEGER(), autoincrement=False, nullable=False),
+        sa.Column('note', sa.VARCHAR(), autoincrement=False, nullable=True),
+        sa.Column('timestamp', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'),
+                  autoincrement=False, nullable=True),
+        sa.ForeignKeyConstraint(['product_id'], ['products.id'], name=op.f('inventory_logs_product_id_fkey')),
+        sa.PrimaryKeyConstraint('id', name=op.f('inventory_logs_pkey'))
+    )
+    op.create_index(op.f('ix_inventory_logs_id'), 'inventory_logs', ['id'], unique=False)
+
+    op.create_table(
+        'bulk_discounts',
+        sa.Column('id', sa.INTEGER(), autoincrement=True, nullable=False),
+        sa.Column('product_id', sa.INTEGER(), autoincrement=False, nullable=True),
+        sa.Column('min_quantity', sa.INTEGER(), autoincrement=False, nullable=False),
+        sa.Column('discounted_unit_cost', sa.DOUBLE_PRECISION(precision=53), autoincrement=False, nullable=False),
+        sa.ForeignKeyConstraint(['product_id'], ['products.id'], name=op.f('bulk_discounts_product_id_fkey')),
+        sa.PrimaryKeyConstraint('id', name=op.f('bulk_discounts_pkey'))
+    )
+    op.create_index(op.f('ix_bulk_discounts_id'), 'bulk_discounts', ['id'], unique=False)

@@ -1,294 +1,555 @@
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
-import AddProductForm from './AddProductForm';
-import { Pencil, Check, X } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useState, useMemo } from "react";
+import { Pencil, Check, X, Plus } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import api from "@/api";
+import AddProductForm from "./AddProductForm";
+import CategoryTree, { CategoryNode } from "@/components/CategoryTree";
 
+/* ---------------- Types ---------------- */
 interface Product {
   id: number;
   name: string;
-  unit_cost: number;
-  reorder_threshold: number;
-  storage_space: number | null;
-  vendor_id: number | null;
-  category_id: number;
+  unit_cost?: number | string | null;
+  sale_price?: number | string | null;
+  resolved_price?: number | string | null;
+  category_id: number | null;
+  category_name?: string | null;
+  description?: string | null;
+  notes?: string | null;
   quantity_in_stock: number;
+  reorder_threshold?: number;
 }
 
-interface Category {
-  id: number | 'all';
+interface Collection {
+  id: number;
   name: string;
+  product_count?: number;
 }
 
-const ProductList = () => {
-  const navigate = useNavigate();
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<number | 'all'>('all');
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  const [totalPages, setTotalPages] = useState<number>(1);
-  const [stockEditId, setStockEditId] = useState<number | null>(null);
-  const [stockInput, setStockInput] = useState<number>(0);
-  const [sortOption, setSortOption] = useState<string>('name-asc');
+const COLLECTIONS_URL = "/collections";
 
+/* --------------- Component -------------- */
+export default function ProductList() {
+  const navigate = useNavigate();
+
+  // Sidebar data
+  const [catTree, setCatTree] = useState<CategoryNode[]>([]);
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [selectedCatId, setSelectedCatId] = useState<number | null>(null);
+  const [selectedCollectionId, setSelectedCollectionId] = useState<number | null>(null);
+
+  // Product table data
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortOption, setSortOption] = useState("name-asc");
+
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
+  // Inline stock edit
+  const [stockEditId, setStockEditId] = useState<number | null>(null);
+  const [stockInput, setStockInput] = useState(0);
+
+  // Grouping flow (unchanged)
+  const [groupStep, setGroupStep] = useState<0 | 1>(0);
+  const [groupNameDraft, setGroupNameDraft] = useState("");
+  const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(new Set());
+  const [groupMsg, setGroupMsg] = useState<string | null>(null);
+  const [showNameModal, setShowNameModal] = useState(false);
+
+  // Add‑product modal
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Fetch categories & collections once
   useEffect(() => {
-    axios.get(`${import.meta.env.VITE_API_URL}/categories/`)
-      .then(res => {
-        const withAll = [{ id: 'all', name: 'All' }, ...res.data];
-        setCategories(withAll);
-        setSelectedCategory('all');
-        setLoading(false);
-      })
-      .catch(() => {
-        setError("Error fetching categories");
-        setLoading(false);
-      });
+    api.get("/categories/tree").then(r => setCatTree(r.data)).catch(() => setCatTree([]));
+    api.get(COLLECTIONS_URL).then(r => setCollections(r.data)).catch(() => setCollections([]));
   }, []);
 
+  // Fetch products whenever filters change
   useEffect(() => {
-    const [sort_by, order] = sortOption.split('-');
-    const params: any = {
-      page: currentPage - 1,
-      limit: 25,
-      sort_by,
-      order,
-    };
-    if (selectedCategory !== 'all') {
-      params.category_id = selectedCategory;
-    }
-    axios.get(`${import.meta.env.VITE_API_URL}/products/`, { params })
-      .then((res) => {
-        setProducts(res.data.products);
-        setTotalPages(res.data.total_pages);
-      })
-      .catch(() => {
-        setError('Error fetching products');
-      });
-  }, [currentPage, sortOption, selectedCategory]);
+    const [sort_by, order] = sortOption.split("-");
+    const params: any = { page: currentPage - 1, limit: 25, sort_by, order };
+    if (selectedCatId != null) params.category_id = selectedCatId;
+    if (selectedCollectionId != null) params.collection_id = selectedCollectionId;
 
+    setLoading(true);
+    api
+      .get("/products/", { params })
+      .then(r => {
+        setProducts(r.data.products || []);
+        setTotalPages(Math.max(r.data.total_pages || 0, 1));
+        setFetchError(null);
+      })
+      .catch(err => {
+        console.error(err);
+        setProducts([]);
+        setTotalPages(1);
+        setFetchError("Error fetching products.");
+      })
+      .finally(() => setLoading(false));
+  }, [currentPage, sortOption, selectedCatId, selectedCollectionId]);
+
+  // Reset page on search or filter change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedCategory]);
+  }, [searchQuery, selectedCatId, selectedCollectionId]);
 
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value);
+  const filteredProducts = useMemo(
+    () => products.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())),
+    [products, searchQuery]
+  );
+
+  // Inline stock update
+  const handleStockUpdate = (product: Product) => {
+    api
+      .patch(`/products/${product.id}`, { quantity_in_stock: stockInput })
+      .then(r => {
+        setProducts(ps => ps.map(p => (p.id === product.id ? r.data : p)));
+        setStockEditId(null);
+      })
+      .catch(console.error);
   };
 
-  const handleSortChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSortOption(e.target.value);
+  // Stock badge coloring
+  const getStockBadge = (p: Product) => {
+    const t = p.reorder_threshold ?? 0;
+    const qty = p.quantity_in_stock;
+    const cls =
+      qty === 0
+        ? "bg-red-100 text-red-800"
+        : qty < t
+        ? "bg-yellow-100 text-yellow-800"
+        : "bg-green-100 text-green-800";
+    return (
+      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${cls}`}>
+        {qty}
+      </span>
+    );
   };
 
-  const toggleModal = () => {
-    setIsModalOpen(!isModalOpen);
+  // Row background based on stock
+  const getRowBg = (p: Product) => {
+    const t = p.reorder_threshold ?? 0;
+    if (p.quantity_in_stock < 0) return "bg-red-50";
+    if (p.quantity_in_stock === 0) return "bg-red-100";
+    if (p.quantity_in_stock < t) return "bg-yellow-50";
+    return "";
   };
 
-  const handlePageChange = (page: number) => {
-    if (page >= 1 && page <= totalPages) {
-      setCurrentPage(page);
+  // Group wizard handlers (unchanged)...
+  const startGroupWizard = () => {
+    setGroupNameDraft("");
+    setSelectedProductIds(new Set());
+    setGroupMsg(null);
+    setShowNameModal(true);
+    setGroupStep(0);
+  };
+  const onNameSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!groupNameDraft.trim()) {
+      setGroupMsg("Group name is required.");
+      return;
+    }
+    setShowNameModal(false);
+    setGroupStep(1);
+  };
+  const cancelGroupWizard = () => {
+    setShowNameModal(false);
+    setGroupStep(0);
+    setGroupMsg(null);
+    setSelectedProductIds(new Set());
+  };
+  const toggleSelectProduct = (id: number) => {
+    setSelectedProductIds(prev => {
+      const nxt = new Set(prev);
+      nxt.has(id) ? nxt.delete(id) : nxt.add(id);
+      return nxt;
+    });
+  };
+  const createGroup = async () => {
+    if (!groupNameDraft.trim()) return setGroupMsg("Group name is required.");
+    if (selectedProductIds.size === 0) return setGroupMsg("Pick at least one product.");
+    try {
+      const res = await api.post(COLLECTIONS_URL + "/", {
+        name: groupNameDraft.trim(),
+        product_ids: Array.from(selectedProductIds),
+      });
+      setCollections(cs => [...cs, res.data]);
+      cancelGroupWizard();
+    } catch (err: any) {
+      console.error(err);
+      setGroupMsg(err.response?.data?.detail ?? "Failed to create group.");
     }
   };
 
-  const handleStockUpdate = (product: Product) => {
-    axios.put(`${import.meta.env.VITE_API_URL}/products/${product.id}`, {
-      ...product,
-      quantity_in_stock: stockInput,
-    }).then(res => {
-      setProducts(products.map(p => p.id === product.id ? res.data : p));
-      setStockEditId(null);
-    });
-  };
-
-  const getStockLabel = (product: Product) => {
-  if (product.quantity_in_stock < 0) {
-    return (
-      <span className="ml-4 px-2 py-0.5 text-xs font-semibold rounded-full bg-red-200 text-red-800">
-        Error
-      </span>
-    );
-  } else if (product.quantity_in_stock === 0) {
-    return (
-      <span className="ml-4 px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700">
-        Out
-      </span>
-    );
-  } else if (product.quantity_in_stock < product.reorder_threshold) {
-    return (
-      <span className="ml-4 px-2 py-0.5 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
-        Low
-      </span>
-    );
-  } else {
-    return (
-      <span className="ml-4 px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700">
-        Good
-      </span>
-    );
-  }
-};
-
-
-  const getRowBg = (product: Product) => {
-  if (product.quantity_in_stock < 0) return 'bg-red-200';
-  if (product.quantity_in_stock === 0) return 'bg-red-50';
-  if (product.quantity_in_stock < product.reorder_threshold) return 'bg-yellow-50';
-  return '';
-};
-
-
-  const filteredProducts = products.filter(product =>
-    product.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  if (loading) return <div className="text-center text-xl text-gray-700">Loading products...</div>;
-  if (error) return <div className="text-center text-red-600">{error}</div>;
-
   return (
-    <div className="container mx-auto p-6 bg-gradient-to-br from-blue-50 to-gray-100 rounded-xl shadow-2xl">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-4xl font-extrabold text-blue-700">Product Inventory</h1>
-        <div className="flex items-center gap-4">
-          <select
-            value={sortOption}
-            onChange={handleSortChange}
-            className="border border-gray-300 rounded p-2 shadow-sm"
-          >
-            <option value="name-asc">Name (A → Z)</option>
-            <option value="name-desc">Name (Z → A)</option>
-            <option value="quantity_in_stock-asc">Stock (Low → High)</option>
-            <option value="quantity_in_stock-desc">Stock (High → Low)</option>
-          </select>
-          <button
-            onClick={toggleModal}
-            className="px-6 py-2 bg-gradient-to-r from-blue-600 to-blue-800 text-white font-semibold rounded-full shadow-lg hover:scale-105 transition-transform"
-          >
-            + Add Product
-          </button>
-        </div>
-      </div>
-
-      {/* Category Tabs */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        {categories.map((cat) => (
-          <button
-            key={cat.id}
-            onClick={() => {
-              setSelectedCategory(cat.id);
-              setCurrentPage(1);
+    <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6 p-6">
+      {/* Sidebar */}
+      <aside className="bg-white rounded-lg shadow p-4 space-y-6">
+        {/* Categories */}
+        <div>
+          <h2 className="text-lg font-semibold mb-2">Categories</h2>
+          <CategoryTree
+            tree={catTree}
+            selected={selectedCatId}
+            onSelect={id => {
+              setSelectedCatId(id);
+              setSelectedCollectionId(null);
             }}
-            className={`px-4 py-2 rounded-full text-sm font-semibold border ${
-              selectedCategory === cat.id ? 'bg-blue-600 text-white' : 'bg-white text-blue-600'
-            }`}
-          >
-            {cat.name}
-          </button>
-        ))}
-      </div>
-
-      <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <input
-          type="text"
-          placeholder="Search by product name..."
-          value={searchQuery}
-          onChange={handleSearchChange}
-          className="p-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500"
-        />
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="w-full mt-4 table-auto border-collapse bg-white rounded-lg shadow-md">
-          <thead className="bg-white text-blue-800 border-b">
-            <tr>
-              <th className="px-6 py-4 text-left">Name</th>
-              <th className="px-6 py-4 text-left">In Stock</th>
-            </tr>
-          </thead>
-          <tbody className="text-gray-800">
-            {filteredProducts.map((product) => (
-              <tr
-                key={product.id}
-                className={`border-b hover:bg-gray-100 cursor-pointer ${getRowBg(product)}`}
-              >
-                <td
-                  className="px-6 py-4 font-medium"
-                  onClick={() => navigate(`/products/${product.id}`)}
-                >
-                  {product.name}
-                </td>
-                <td className="px-6 py-4">
-                  <div className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                    {stockEditId === product.id ? (
-                      <>
-                        <input
-                          type="number"
-                          value={stockInput}
-                          onChange={(e) => setStockInput(Number(e.target.value))}
-                          onKeyDown={(e) => e.key === 'Enter' && handleStockUpdate(product)}
-                          className="border p-1 rounded w-20"
-                        />
-                        <button onClick={() => handleStockUpdate(product)}><Check className="w-4 h-4 text-green-600" /></button>
-                        <button onClick={() => setStockEditId(null)}><X className="w-4 h-4 text-gray-500" /></button>
-                      </>
-                    ) : (
-                      <>
-                        {product.quantity_in_stock}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setStockEditId(product.id);
-                            setStockInput(product.quantity_in_stock);
-                          }}
-                        >
-                          <Pencil className="w-4 h-4 text-blue-600" />
-                        </button>
-                        {getStockLabel(product)}
-                      </>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="mt-10 flex justify-center space-x-4">
-        <button
-          onClick={() => handlePageChange(currentPage - 1)}
-          disabled={currentPage === 1}
-          className="px-6 py-2 bg-blue-600 text-white rounded-lg disabled:bg-gray-300 hover:bg-blue-700"
-        >
-          Prev
-        </button>
-        <span className="self-center font-medium text-gray-700">{`Page ${currentPage} of ${totalPages}`}</span>
-        <button
-          onClick={() => handlePageChange(currentPage + 1)}
-          disabled={currentPage === totalPages}
-          className="px-6 py-2 bg-blue-600 text-white rounded-lg disabled:bg-gray-300 hover:bg-blue-700"
-        >
-          Next
-        </button>
-      </div>
-
-      {isModalOpen && (
-        <div className="fixed inset-0 flex justify-center items-center z-50 bg-black bg-opacity-40">
-          <div className="bg-white p-6 rounded-lg shadow-2xl w-full max-w-md relative">
+          />
+        </div>
+        {/* Groups */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-lg font-semibold">Groups</h2>
             <button
-              onClick={toggleModal}
-              className="absolute top-2 right-2 text-xl text-gray-500 hover:text-gray-700"
+              onClick={startGroupWizard}
+              className="text-xs text-blue-600 hover:underline flex items-center gap-1"
             >
-              &times;
+              <Plus className="w-3 h-3" /> New
             </button>
-            <h2 className="text-2xl font-bold mb-4 text-blue-700">Add New Product</h2>
-            <AddProductForm closeForm={toggleModal} />
+          </div>
+          {collections.length === 0 ? (
+            <p className="text-xs text-gray-500">No groups yet.</p>
+          ) : (
+            <ul className="space-y-1">
+              {collections.map(g => (
+                <li key={g.id}>
+                  <button
+                    onClick={() => {
+                      setSelectedCollectionId(g.id);
+                      setSelectedCatId(null);
+                    }}
+                    className={`w-full text-left text-sm px-2 py-1 rounded ${
+                      selectedCollectionId === g.id
+                        ? "bg-blue-100 text-blue-700"
+                        : "hover:bg-gray-100"
+                    }`}
+                  >
+                    {g.name}
+                    {typeof g.product_count === "number" && (
+                      <span className="ml-2 text-[10px] text-gray-500">
+                        ({g.product_count})
+                      </span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <div className="bg-white rounded-xl shadow p-6 relative">
+        {/* Group selection banner */}
+        {groupStep === 1 && (
+          <div className="absolute inset-x-0 top-0 bg-blue-50 border-b border-blue-200 p-3 flex items-center gap-3">
+            <span className="text-sm">
+              Selecting for <strong>{groupNameDraft}</strong>
+            </span>
+            <button
+              onClick={createGroup}
+              className="px-3 py-1 text-xs bg-green-600 text-white rounded"
+            >
+              Create
+            </button>
+            <button
+              onClick={cancelGroupWizard}
+              className="px-3 py-1 text-xs bg-gray-300 rounded"
+            >
+              Cancel
+            </button>
+            {groupMsg && <span className="text-xs text-red-600">{groupMsg}</span>}
+          </div>
+        )}
+
+        {/* Header & controls */}
+        <div
+          className={`flex justify-between items-center mb-6 ${
+            groupStep === 1 ? "mt-12" : ""
+          }`}
+        >
+          <h1 className="text-3xl font-bold text-blue-700">Products</h1>
+          <div className="flex items-center gap-4">
+            <select
+              value={sortOption}
+              onChange={e => setSortOption(e.target.value)}
+              className="border rounded p-2 shadow-sm text-sm"
+            >
+              <option value="name-asc">Name A→Z</option>
+              <option value="name-desc">Name Z→A</option>
+              <option value="quantity_in_stock-asc">Stock Low→High</option>
+              <option value="quantity_in_stock-desc">Stock High→Low</option>
+            </select>
+            <button
+              onClick={() => setIsModalOpen(o => !o)}
+              className="px-4 py-2 bg-blue-600 text-white rounded shadow-sm text-sm"
+            >
+              + Add Product
+            </button>
           </div>
         </div>
+
+        {/* Fetch error */}
+        {fetchError && (
+          <div className="mb-4 p-3 bg-red-50 text-red-700 rounded text-sm">
+            {fetchError}
+          </div>
+        )}
+
+        {/* Search */}
+        <div className="mb-6">
+          <input
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search by name…"
+            className="w-full md:w-80 p-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 text-sm"
+          />
+        </div>
+
+        {/* Loading / Empty */}
+        {loading ? (
+          <div className="text-center text-gray-700 py-12">Loading…</div>
+        ) : filteredProducts.length === 0 ? (
+          <div className="text-center text-gray-600 py-12 space-y-4">
+            <p>No products found.</p>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="px-6 py-2 bg-blue-600 text-white rounded shadow-sm"
+            >
+              Add product
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full table-fixed border-collapse">
+                <colgroup>
+                  {groupStep === 1 && <col style={{ width: "50px" }} />}
+                  <col style={{ width: "260px" }} /> {/* Name */}
+                  <col style={{ width: "160px" }} /> {/* Category */}
+                  <col style={{ width: "320px" }} /> {/* Description */}
+                  <col style={{ width: "220px" }} /> {/* Notes */}
+                  <col style={{ width: "120px" }} /> {/* Stock */}
+                  <col /> {/* Edit */}
+                </colgroup>
+                <thead className="bg-gray-100">
+                  <tr>
+                    {groupStep === 1 && <th className="py-4 px-6"></th>}
+                    <th className="py-4 px-6 text-left text-sm">Name</th>
+                    <th className="py-4 px-6 text-left text-sm">Category</th>
+                    <th className="py-4 px-6 text-left text-sm">Description</th>
+                    <th className="py-4 px-6 text-left text-sm">Notes</th>
+                    <th className="py-4 px-6 text-right text-sm">Stock</th>
+                    <th className="py-4 px-6 text-right text-sm">Edit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredProducts.map(p => {
+                    const checked = selectedProductIds.has(p.id);
+                    return (
+                      <tr
+                        key={p.id}
+                        className={`border-b hover:bg-gray-50 ${
+                          groupStep === 1 ? "cursor-pointer" : ""
+                        } ${getRowBg(p)}`}
+                      >
+                        {/* Group checkbox */}
+                        {groupStep === 1 && (
+                          <td className="py-4 px-6 text-center">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleSelectProduct(p.id)}
+                            />
+                          </td>
+                        )}
+
+                        {/* Name */}
+                        <td
+                          className="py-4 px-6 truncate whitespace-nowrap text-sm font-medium"
+                          title={p.name}
+                        >
+                          {p.name}
+                        </td>
+
+                        {/* Category */}
+                        <td
+                          className="py-4 px-6 truncate whitespace-nowrap text-sm text-gray-700"
+                          title={p.category_name || ""}
+                        >
+                          {p.category_name || "—"}
+                        </td>
+
+                        {/* Description */}
+                        <td
+                          className="py-4 px-6 truncate whitespace-nowrap text-sm text-gray-600"
+                          title={p.description || ""}
+                        >
+                          {p.description || "—"}
+                        </td>
+
+                        {/* Notes */}
+                        <td
+                          className="py-4 px-6 truncate whitespace-nowrap text-sm text-gray-600"
+                          title={p.notes || ""}
+                        >
+                          {p.notes || "—"}
+                        </td>
+
+                        {/* Stock with inline edit */}
+                        <td className="py-4 px-6 text-right text-sm">
+                          {stockEditId === p.id ? (
+                            <div className="inline-flex items-center gap-2">
+                              <input
+                                type="number"
+                                value={stockInput}
+                                onChange={e => setStockInput(Number(e.target.value))}
+                                onKeyDown={e => e.key === "Enter" && handleStockUpdate(p)}
+                                className="w-16 border p-1 rounded text-sm"
+                              />
+                              <button onClick={() => handleStockUpdate(p)}>
+                                <Check className="w-4 h-4 text-green-600" />
+                              </button>
+                              <button onClick={() => setStockEditId(null)}>
+                                <X className="w-4 h-4 text-gray-500" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="inline-flex items-center gap-2">
+                              <span>{p.quantity_in_stock}</span>
+                              <button
+                                onClick={() => {
+                                  setStockEditId(p.id);
+                                  setStockInput(p.quantity_in_stock);
+                                }}
+                                className="text-gray-500"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Edit button */}
+                        <td className="py-4 px-6 text-right text-sm">
+                          <button
+                                    onClick={() => navigate(`/products/${p.id}`)}
+                                    className="text-blue-600 hover:underline"
+                                  >
+                                    Edit
+                                  </button>
+
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            <div className="mt-4 flex justify-center items-center gap-4">
+              <button
+                onClick={() => setCurrentPage(c => Math.max(1, c - 1))}
+                disabled={currentPage === 1}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded disabled:bg-gray-300"
+              >
+                Prev
+              </button>
+              <span className="text-sm text-gray-700">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(c => Math.min(totalPages, c + 1))}
+                disabled={currentPage === totalPages}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded disabled:bg-gray-300"
+              >
+                Next
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Modals */}
+      {isModalOpen && (
+        <Modal onClose={() => setIsModalOpen(false)} title="Add Product">
+          <AddProductForm closeForm={() => setIsModalOpen(false)} catTree={catTree} />
+        </Modal>
+      )}
+      {showNameModal && (
+        <Modal onClose={cancelGroupWizard} title="New Group">
+          <form onSubmit={onNameSubmit} className="space-y-4 text-sm">
+            {groupMsg && <p className="text-red-600 text-xs">{groupMsg}</p>}
+            <div>
+              <label className="block mb-1 font-medium">Group name</label>
+              <input
+                value={groupNameDraft}
+                onChange={e => setGroupNameDraft(e.target.value)}
+                className="w-full border rounded p-2"
+                placeholder="e.g. Top sellers"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={cancelGroupWizard}
+                className="px-4 py-2 border rounded text-sm"
+              >
+                Cancel
+              </button>
+              <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded text-sm">
+                Next
+              </button>
+            </div>
+          </form>
+        </Modal>
       )}
     </div>
   );
-};
+}
 
-export default ProductList;
+/* -------- Small helpers -------- */
+const Modal = ({
+  children,
+  onClose,
+  title,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+  title: string;
+}) => (
+  <div className="fixed inset-0 z-50 flex justify-center items-center bg-black/40 p-4">
+    <div className="bg-white p-6 rounded-lg shadow-2xl w-full max-w-md relative">
+      <button onClick={onClose} className="absolute top-2 right-2 text-xl text-gray-500 hover:text-gray-700">
+        &times;
+      </button>
+      <h2 className="text-2xl font-bold mb-4 text-blue-700">{title}</h2>
+      {children}
+    </div>
+  </div>
+);
+
+const Badge = ({
+  text,
+  color,
+  subtle,
+}: {
+  text: string;
+  color: "red" | "yellow" | "green";
+  subtle?: boolean;
+}) => {
+  const map = {
+    red: subtle ? "bg-red-100 text-red-700" : "bg-red-200 text-red-800",
+    yellow: subtle ? "bg-yellow-100 text-yellow-800" : "bg-yellow-200 text-yellow-900",
+    green: subtle ? "bg-green-100 text-green-700" : "bg-green-200 text-green-800",
+  }[color];
+  return <span className={`ml-2 px-2 py-0.5 text-xs font-semibold rounded-full ${map}`}>{text}</span>;
+};

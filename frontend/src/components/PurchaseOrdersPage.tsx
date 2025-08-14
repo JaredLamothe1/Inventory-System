@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from "@/api";
+
 import { Link } from 'react-router-dom';
 
 const PurchaseOrdersPage = () => {
@@ -8,7 +9,7 @@ const PurchaseOrdersPage = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    axios.get(`${import.meta.env.VITE_API_URL}/purchase_orders/`)
+    api.get(`${import.meta.env.VITE_API_URL}/purchase_orders/`)
       .then((res) => {
         setOrders(res.data || []);
         setLoading(false);

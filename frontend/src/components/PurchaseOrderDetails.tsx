@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from "@/api";
+
 
 interface Category {
   id: number;
@@ -35,7 +36,7 @@ const PurchaseOrderDetails: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    axios.get(`${import.meta.env.VITE_API_URL}/purchase_orders/${id}`)
+    api.get(`${import.meta.env.VITE_API_URL}/purchase_orders/${id}`)
       .then((res) => {
         setOrder(res.data);
         setLoading(false);
@@ -46,11 +47,31 @@ const PurchaseOrderDetails: React.FC = () => {
       });
   }, [id]);
 
+  const handleDelete = () => {
+    if (!order) return;
+
+    const confirmDelete = window.confirm(
+      "Are you sure you want to delete this purchase order and revert inventory changes?"
+    );
+
+    if (!confirmDelete) return;
+
+    api
+      .delete(`${import.meta.env.VITE_API_URL}/purchase_orders/${order.id}`)
+      .then(() => {
+        alert("Purchase order deleted and inventory reverted.");
+        navigate("/purchase-orders");
+      })
+      .catch((err) => {
+        alert("Failed to delete the order.");
+        console.error(err);
+      });
+  };
+
   if (loading) return <div className="p-6">Loading...</div>;
   if (error) return <div className="p-6 text-red-500">{error}</div>;
   if (!order) return null;
 
-  // Group items by category
   const itemsByCategory: { [categoryName: string]: PurchaseOrderItem[] } = {};
   order.items.forEach(item => {
     const categoryName = item.product.category.name;
@@ -66,12 +87,20 @@ const PurchaseOrderDetails: React.FC = () => {
     <div className="max-w-4xl mx-auto p-6">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">Purchase Order #{order.id}</h1>
-        <button
-          className="bg-gray-300 hover:bg-gray-400 text-black px-4 py-2 rounded"
-          onClick={() => navigate('/purchase-orders')}
-        >
-          Back
-        </button>
+        <div>
+          <button
+            className="bg-gray-300 hover:bg-gray-400 text-black px-4 py-2 rounded mr-2"
+            onClick={() => navigate('/purchase-orders')}
+          >
+            Back
+          </button>
+          <button
+            onClick={handleDelete}
+            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded"
+          >
+            Delete Order
+          </button>
+        </div>
       </div>
 
       <p className="text-md text-gray-600 mb-4">
@@ -79,41 +108,39 @@ const PurchaseOrderDetails: React.FC = () => {
       </p>
 
       {Object.entries(itemsByCategory).map(([category, items]) => {
-  const categoryTotalQty = items.reduce((sum, item) => sum + item.quantity, 0);
-  const unitCost = items[0]?.unit_cost || 0;
+        const categoryTotalQty = items.reduce((sum, item) => sum + item.quantity, 0);
+        const unitCost = items[0]?.unit_cost || 0;
 
-  return (
-    <div key={category} className="mb-10">
-      <h2 className="text-xl font-semibold border-b pb-1 mb-1">{category}</h2>
-      <p className="text-sm text-gray-600 mb-2">
-        Total Quantity: <strong>{categoryTotalQty}</strong> &nbsp;|&nbsp; Unit Cost: <strong>${unitCost.toFixed(2)}</strong>
-      </p>
+        return (
+          <div key={category} className="mb-10">
+            <h2 className="text-xl font-semibold border-b pb-1 mb-1">{category}</h2>
+            <p className="text-sm text-gray-600 mb-2">
+              Total Quantity: <strong>{categoryTotalQty}</strong> &nbsp;|&nbsp; Unit Cost: <strong>${unitCost.toFixed(2)}</strong>
+            </p>
 
-      <table className="min-w-full border text-base mb-4">
-        <thead className="bg-gray-200 text-base">
-          <tr>
-            <th className="border px-4 py-2 text-left">Product</th>
-            <th className="border px-4 py-2 text-right">Quantity</th>
-            <th className="border px-4 py-2 text-right">Subtotal</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <tr key={item.id}>
-              <td className="border px-4 py-2">{item.product.name}</td>
-              <td className="border px-4 py-2 text-right text-lg font-medium">{item.quantity}</td>
-              <td className="border px-4 py-2 text-right text-lg font-medium">
-                ${(item.quantity * item.unit_cost).toFixed(2)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-})}
-
-
+            <table className="min-w-full border text-base mb-4">
+              <thead className="bg-gray-200 text-base">
+                <tr>
+                  <th className="border px-4 py-2 text-left">Product</th>
+                  <th className="border px-4 py-2 text-right">Quantity</th>
+                  <th className="border px-4 py-2 text-right">Subtotal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr key={item.id}>
+                    <td className="border px-4 py-2">{item.product.name}</td>
+                    <td className="border px-4 py-2 text-right text-lg font-medium">{item.quantity}</td>
+                    <td className="border px-4 py-2 text-right text-lg font-medium">
+                      ${(item.quantity * item.unit_cost).toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
 
       <div className="text-right text-2xl font-bold pt-6 border-t">
         Total: ${total.toFixed(2)}
