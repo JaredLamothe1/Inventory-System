@@ -5,6 +5,8 @@ from app.models.purchase_order import PurchaseOrder, PurchaseOrderItem
 from app.models.product import Product
 from app.models.inventory_log import InventoryLog
 from app.schemas.purchase_order import PurchaseOrderCreate, PurchaseOrderOut
+from app.routes.auth import get_current_user
+from app.models.user import User
 
 router = APIRouter(prefix="/purchase_orders", tags=["purchase_orders"])
 
@@ -18,14 +20,14 @@ def get_db():
 
 
 @router.post("/", response_model=PurchaseOrderOut)
-def create_order(order_data: PurchaseOrderCreate, db: Session = Depends(get_db)):
-    new_order = PurchaseOrder(created_at=order_data.created_at)
+def create_order(order_data: PurchaseOrderCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    new_order = PurchaseOrder(created_at=order_data.created_at, user_id=current_user.id)
     db.add(new_order)
     db.commit()
     db.refresh(new_order)
 
     for item in order_data.items:
-        product = db.query(Product).filter(Product.id == item.product_id).first()
+        product = db.query(Product).filter(Product.id == item.product_id, Product.user_id == current_user.id).first()
         if not product:
             raise HTTPException(status_code=404, detail=f"Product {item.product_id} not found")
 
@@ -53,20 +55,44 @@ def create_order(order_data: PurchaseOrderCreate, db: Session = Depends(get_db))
 
 
 @router.get("/", response_model=list[PurchaseOrderOut])
-def get_all_orders(db: Session = Depends(get_db)):
-    return db.query(PurchaseOrder).options(joinedload(PurchaseOrder.items)).all()
+def get_all_orders(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return db.query(PurchaseOrder).options(
+        joinedload(PurchaseOrder.items)
+        .joinedload(PurchaseOrderItem.product)
+        .joinedload(Product.category)
+    ).filter(PurchaseOrder.user_id == current_user.id).all()
 
 
 @router.get("/{order_id}", response_model=PurchaseOrderOut)
-def get_order_by_id(order_id: int, db: Session = Depends(get_db)):
+def get_order_by_id(order_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     order = db.query(PurchaseOrder).options(
         joinedload(PurchaseOrder.items)
         .joinedload(PurchaseOrderItem.product)
-        .joinedload(Product.category)  # ✅ This enables .product.category.name on frontend
-    ).filter(PurchaseOrder.id == order_id).first()
+        .joinedload(Product.category)
+    ).filter(PurchaseOrder.id == order_id, PurchaseOrder.user_id == current_user.id).first()
 
     if not order:
         raise HTTPException(status_code=404, detail="Purchase order not found")
 
     return order
 
+
+@router.delete("/{purchase_order_id}", status_code=204)
+def delete_purchase_order(purchase_order_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    po = db.query(PurchaseOrder).options(
+        joinedload(PurchaseOrder.items)
+    ).filter(PurchaseOrder.id == purchase_order_id, PurchaseOrder.user_id == current_user.id).first()
+
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+
+    # Revert inventory quantities
+    for item in po.items:
+        product = db.query(Product).filter(Product.id == item.product_id, Product.user_id == current_user.id).first()
+        if product:
+            product.quantity_in_stock -= item.quantity
+            if product.quantity_in_stock < 0:
+                product.quantity_in_stock = 0  # Prevent negative inventory
+
+    db.delete(po)
+    db.commit()
