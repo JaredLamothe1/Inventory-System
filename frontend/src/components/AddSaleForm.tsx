@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
 interface Product {
   id: number;
@@ -20,33 +20,91 @@ interface SaleItem {
   name: string;
 }
 
+interface ExistingSaleItem {
+  product_id: number;
+  quantity: number;
+  unit_price: number;
+}
+
 const AddSaleForm = () => {
+  const { saleId } = useParams();
+  const isEditing = Boolean(saleId);
+
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [items, setItems] = useState<SaleItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | "All">("All");
-  const [saleDate, setSaleDate] = useState(new Date().toISOString().split("T")[0]);
+  const [saleDate, setSaleDate] = useState("");
   const [notes, setNotes] = useState("");
   const [saleType, setSaleType] = useState("individual");
+
   const navigate = useNavigate();
+
+  const authHeaders = () => {
+    const token = localStorage.getItem("token");
+    return {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    };
+  };
 
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const productRes = await fetch(`${import.meta.env.VITE_API_URL}/products/?limit=1000&page=0&sort_by=name&order=asc`);
+        const [productRes, categoryRes] = await Promise.all([
+          fetch(`${import.meta.env.VITE_API_URL}/products/?limit=1000&page=0&sort_by=name&order=asc`, {
+            headers: authHeaders(),
+          }),
+          fetch(`${import.meta.env.VITE_API_URL}/categories/`, {
+            headers: authHeaders(),
+          }),
+        ]);
         const productData = await productRes.json();
-        setProducts(productData.products ?? []);
-
-        const categoryRes = await fetch(`${import.meta.env.VITE_API_URL}/categories/`);
         const categoryData = await categoryRes.json();
+        setProducts(productData.products ?? []);
         setCategories(categoryData ?? []);
       } catch (err) {
         console.error("Failed to fetch products or categories", err);
       }
     };
+
     fetchAll();
   }, []);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setSaleDate(new Date().toISOString().split("T")[0]);
+      return;
+    }
+
+    const fetchSale = async () => {
+      try {
+        const res = await fetch(`${import.meta.env.VITE_API_URL}/sales/${saleId}`, {
+          headers: authHeaders(),
+        });
+        if (!res.ok) throw new Error("Sale not found");
+
+        const data = await res.json();
+        setSaleDate(data.sale_date.split("T")[0]);
+        setNotes(data.notes ?? "");
+        setSaleType(data.sale_type ?? "individual");
+
+        const itemDetails: SaleItem[] = data.items.map((item: ExistingSaleItem) => {
+          const product = products.find((p) => p.id === item.product_id);
+          return {
+            ...item,
+            name: product?.name || "Unnamed Product"
+          };
+        });
+        setItems(itemDetails);
+      } catch (err) {
+        console.error("Failed to fetch sale", err);
+      }
+    };
+
+    fetchSale();
+  }, [isEditing, saleId, products]);
 
   const getSalePrice = (categoryId: number): number => {
     const category = categories.find(cat => cat.id === categoryId);
@@ -54,8 +112,7 @@ const AddSaleForm = () => {
   };
 
   const handleAddProduct = (product: Product) => {
-    const existing = items.find((i) => i.product_id === product.id);
-    if (existing) return;
+    if (items.find((i) => i.product_id === product.id)) return;
 
     const price = getSalePrice(product.category_id);
     setItems([
@@ -95,9 +152,14 @@ const AddSaleForm = () => {
       })),
     };
 
-    const res = await fetch(`${import.meta.env.VITE_API_URL}/sales/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    const method = isEditing ? "PUT" : "POST";
+    const url = isEditing
+      ? `${import.meta.env.VITE_API_URL}/sales/${saleId}`
+      : `${import.meta.env.VITE_API_URL}/sales/`;
+
+    const res = await fetch(url, {
+      method,
+      headers: authHeaders(),
       body: JSON.stringify(payload),
     });
 
@@ -115,7 +177,6 @@ const AddSaleForm = () => {
   );
 
   const total = items.reduce((sum, i) => sum + i.quantity * i.unit_price, 0);
-
   const selectedCategoryPrice =
     selectedCategoryId !== "All"
       ? getSalePrice(selectedCategoryId as number)
@@ -123,7 +184,9 @@ const AddSaleForm = () => {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
-      <h1 className="text-3xl font-bold mb-6 text-blue-800">🧾 New Sale</h1>
+      <h1 className="text-3xl font-bold mb-6 text-blue-800">
+        {isEditing ? "✏️ Edit Sale" : "🧾 New Sale"}
+      </h1>
 
       {/* Sale Details */}
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-6 shadow-sm space-y-4">
@@ -284,7 +347,7 @@ const AddSaleForm = () => {
             onClick={handleSubmit}
             className="px-5 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow"
           >
-            Submit Sale
+            {isEditing ? "Save Changes" : "Submit Sale"}
           </button>
         </div>
       </div>
