@@ -21,8 +21,7 @@ interface Product {
 }
 
 /* ---------- Helpers ---------- */
-const num = (v: unknown) =>
-  v == null || v === "" ? null : Number(v);
+const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
 
 const fmtMoney = (v: unknown) => {
   const n =
@@ -33,6 +32,18 @@ const fmtMoney = (v: unknown) => {
       : NaN;
   return !isNaN(n) ? `$${n.toFixed(2)}` : "—";
 };
+
+// Normalize undefined → null for all nullable fields
+const normalizeProduct = (p: Product): Product => ({
+  ...p,
+  description: p.description ?? null,
+  notes: p.notes ?? null,
+  category_id: p.category_id ?? null,
+  unit_cost: p.unit_cost ?? null,
+  sale_price: p.sale_price ?? null,
+  resolved_price: p.resolved_price ?? null,
+  reorder_threshold: p.reorder_threshold ?? null,
+});
 
 /* ---------- Component ---------- */
 export default function ProductDetails() {
@@ -52,8 +63,9 @@ export default function ProductDetails() {
 
   /* Load categories */
   useEffect(() => {
-    api.get<CategoryNode[]>("/categories/tree")
-      .then(r => setCatTree(r.data))
+    api
+      .get<CategoryNode[]>("/categories/tree")
+      .then((r) => setCatTree(r.data))
       .catch(() => setCatTree([]));
   }, []);
 
@@ -63,9 +75,10 @@ export default function ProductDetails() {
     api
       .get<Product>(`/products/${pid}`)
       .then((r) => {
-        setProduct(r.data);
-        setForm(r.data);
-        setOverrideSale(r.data.sale_price != null);
+        const normalized = normalizeProduct(r.data);
+        setProduct(normalized);
+        setForm(normalized);
+        setOverrideSale(normalized.sale_price != null);
       })
       .catch(() => setMsg({ text: "Failed to load product.", isError: true }))
       .finally(() => setLoading(false));
@@ -73,26 +86,29 @@ export default function ProductDetails() {
 
   /* Handlers */
   const handleChange = (field: keyof Product, value: any) => {
-    setForm((f) => f && { ...f, [field]: value });
+    setForm((f) => (f ? { ...f, [field]: value } : f));
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form) return;
+
     const payload: any = {
       name: form.name,
-      description: form.description,
-      notes: form.notes,
-      category_id: form.category_id,
+      description: form.description ?? null,
+      notes: form.notes ?? null,
+      category_id: form.category_id ?? null,
       unit_cost: num(form.unit_cost),
       quantity_in_stock: form.quantity_in_stock,
       sale_price: overrideSale ? num(form.sale_price) : null,
     };
+
     try {
       const res = await api.patch<Product>(`/products/${pid}`, payload);
-      setProduct(res.data);
-      setForm(res.data);
-      setOverrideSale(res.data.sale_price != null);
+      const normalized = normalizeProduct(res.data);
+      setProduct(normalized);
+      setForm(normalized);
+      setOverrideSale(normalized.sale_price != null);
       setMsg({ text: "Saved successfully.", isError: false });
     } catch (err: any) {
       setMsg({ text: err.response?.data?.detail || "Save failed.", isError: true });
@@ -150,8 +166,8 @@ export default function ProductDetails() {
               <label className="block mb-1 font-medium">Category</label>
               <CategoryPicker
                 tree={catTree}
-                value={form.category_id}
-                onChange={(id) => handleChange("category_id", id)}
+                value={form.category_id ?? null}
+                onChange={(id) => handleChange("category_id", id ?? null)}
               />
             </div>
           </section>
@@ -163,7 +179,7 @@ export default function ProductDetails() {
             <div>
               <label className="block mb-1 font-medium">Description</label>
               <textarea
-                value={form.description || ""}
+                value={form.description ?? ""}
                 onChange={(e) => handleChange("description", e.target.value)}
                 className="w-full border rounded p-2 h-32"
               />
@@ -172,12 +188,17 @@ export default function ProductDetails() {
             <div>
               <label className="block mb-1 font-medium">Notes</label>
               <textarea
-                value={form.notes || ""}
+                value={form.notes ?? ""}
                 onChange={(e) => handleChange("notes", e.target.value)}
                 className="w-full border rounded p-2 h-24"
               />
             </div>
           </section>
+
+          {/* Submit lives here so Enter works and we avoid onClick casts */}
+          <div className="hidden">
+            <button type="submit">Save</button>
+          </div>
         </form>
 
         {/* Right: Sidebar */}
@@ -234,7 +255,7 @@ export default function ProductDetails() {
           {/* Computed */}
           <section className="space-y-2 text-sm text-gray-700">
             <div>
-              <strong>Effective sale price:</strong> {fmtMoney(form.resolved_price)}
+              <strong>Effective sale price:</strong> {fmtMoney(form.resolved_price ?? null)}
             </div>
             <div>
               <strong>Total inventory value:</strong>{" "}
@@ -247,16 +268,23 @@ export default function ProductDetails() {
           {/* Actions */}
           <section className="space-y-2">
             <button
-              onClick={handleSave as any}
-              className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              Save changes
-            </button>
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
+              type="button"
+              onClick={handleDelete}
               className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
             >
               <Trash2 className="w-4 h-4" /> Delete product
+            </button>
+
+            <button
+              type="submit"
+              form="__product_form__"
+              className="hidden"
+            />
+            <button
+              onClick={(e) => handleSave(e)}
+              className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            >
+              Save changes
             </button>
           </section>
 
