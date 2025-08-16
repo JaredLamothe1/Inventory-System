@@ -1,11 +1,12 @@
-# seed_admin.py
+# create_admin.py
 from app.database import SessionLocal
 from app.models.user import User
 from app.utils import hash_password
 import app.models 
-EMAIL = "jaredlamothe2@gmail.com"
+
+EMAIL = "admin@example.com"
 USERNAME = "admin"
-PASSWORD = "changeme"  # change later
+PASSWORD = "changeme"  # <-- change this after login
 
 db = SessionLocal()
 u = db.query(User).filter(User.username == USERNAME).first()
@@ -15,6 +16,7 @@ if not u:
     action = "created"
 else:
     u.email = EMAIL
+    u.hashed_password = hash_password(PASSWORD)
     action = "updated"
 
 db.commit()
