@@ -33,7 +33,7 @@ const Login: React.FC = () => {
       form.append("username", username);
       form.append("password", password);
 
-      const res = await fetch(`${API_URL}/auth/login`, {
+      const res = await fetch(`${API_URL}/login`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
