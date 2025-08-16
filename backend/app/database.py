@@ -13,7 +13,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 load_dotenv(BACKEND_DIR / ".env")
 
 APP_ENV = os.getenv("APP_ENV", os.getenv("ENV", "development")).lower()
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DATABASE_URL = "postgresql://inventory_main_user:LsaUGSRqODVxHD64tnrOlJO06yaxUCue@dpg-d2f59ebuibrs73fa6qu0-a.virginia-postgres.render.com/inventory_main"
 
 # Only used in dev if DATABASE_URL is blank
 DEV_DB_PATH = os.getenv(
