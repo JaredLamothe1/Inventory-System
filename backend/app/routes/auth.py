@@ -16,7 +16,7 @@ from app.utils import verify_password, create_access_token, hash_password, sha25
 from app.models.user import User
 from app.models.password_reset import PasswordReset
 from app.config import settings
-from app.email_config import fm
+from app.email_config import get_fastmail
 
 # ---------------------------------------------------------------------
 # Config (fallbacks if not in .env/settings)
@@ -234,7 +234,10 @@ async def request_password_reset(
         ),
         subtype="plain",
     )
-    await fm.send_message(message)
+    fm = get_fastmail()
+    if fm:
+      await fm.send_message(message)
+
 
     return generic_msg
 
