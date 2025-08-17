@@ -62,7 +62,6 @@ const AddSaleForm = () => {
           }),
         ]);
 
-        // If either request fails, avoid crashing on JSON parse
         if (!productRes.ok) throw new Error("Failed to load products");
         if (!categoryRes.ok) throw new Error("Failed to load categories");
 
@@ -99,7 +98,6 @@ const AddSaleForm = () => {
 
         const data = await res.json();
 
-        // sale_date may be "YYYY-MM-DD" (no T) or may be null
         const rawDate: string | null = data?.sale_date ?? null;
         const normalized = rawDate ? String(rawDate).split("T")[0] : new Date().toISOString().split("T")[0];
         setSaleDate(normalized);
@@ -107,7 +105,6 @@ const AddSaleForm = () => {
         setNotes(data?.notes ?? "");
         setSaleType(data?.sale_type ?? "individual");
 
-        // Map items safely even if products haven't fully loaded names yet
         const itemDetails: SaleItem[] = (data?.items ?? []).map((item: ExistingSaleItem) => {
           const product = products.find((p) => p.id === item.product_id);
           return {
@@ -160,12 +157,32 @@ const AddSaleForm = () => {
     );
   };
 
+  const handlePriceChange = (productId: number, priceInput: string) => {
+    // Allow blank while typing, clamp on commit
+    let val = priceInput.trim();
+    if (val === "") {
+      setItems((prev) =>
+        prev.map((item) =>
+          item.product_id === productId ? { ...item, unit_price: 0 } : item
+        )
+      );
+      return;
+    }
+    const num = Number(val);
+    setItems((prev) =>
+      prev.map((item) =>
+        item.product_id === productId
+          ? { ...item, unit_price: Number.isFinite(num) ? Math.max(0, parseFloat(num.toFixed(2))) : item.unit_price }
+          : item
+      )
+    );
+  };
+
   const handleRemove = (productId: number) => {
     setItems((prev) => prev.filter((item) => item.product_id !== productId));
   };
 
   const handleSubmit = async () => {
-    // Basic guard to avoid empty sale payloads
     if (items.length === 0) {
       alert("Please add at least one product to the sale.");
       return;
@@ -178,7 +195,7 @@ const AddSaleForm = () => {
       items: items.map(({ product_id, quantity, unit_price }) => ({
         product_id,
         quantity,
-        unit_price,
+        unit_price: Number.isFinite(unit_price) ? Number(unit_price) : 0,
       })),
     };
 
@@ -190,7 +207,7 @@ const AddSaleForm = () => {
     try {
       const res = await fetch(url, {
         method,
-        headers: authHeaders(),
+               headers: authHeaders(),
         body: JSON.stringify(payload),
       });
 
@@ -231,7 +248,6 @@ const AddSaleForm = () => {
     return getSalePrice(idNum);
   }, [selectedCategoryId, categories]);
 
-  // ---------- UI ----------
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
       <h1 className="text-3xl font-bold mb-6 text-blue-800">
@@ -349,7 +365,7 @@ const AddSaleForm = () => {
           {items.map((item) => (
             <div
               key={item.product_id}
-              className="bg-white border rounded-lg p-4 shadow-sm space-y-2"
+              className="bg-white border rounded-lg p-4 shadow-sm space-y-3"
             >
               <div className="flex justify-between items-center">
                 <h3 className="font-semibold text-gray-800">{item.name}</h3>
@@ -360,17 +376,35 @@ const AddSaleForm = () => {
                   Remove
                 </button>
               </div>
-              <div className="flex items-center gap-3 text-sm">
-                <label className="text-gray-600">Quantity:</label>
-                <input
-                  type="number"
-                  value={item.quantity}
-                  onChange={(e) => handleQuantityChange(item.product_id, Number(e.target.value))}
-                  className="border px-2 py-1 w-20 rounded-md"
-                />
-                <span className="ml-auto font-medium text-blue-700">
-                  = ${Number(item.unit_price * item.quantity).toFixed(2)}
-                </span>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center text-sm">
+                <div className="flex items-center gap-2">
+                  <label className="text-gray-600 w-20">Quantity:</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={item.quantity}
+                    onChange={(e) => handleQuantityChange(item.product_id, Number(e.target.value))}
+                    className="border px-2 py-1 w-24 rounded-md"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="text-gray-600 w-20">Unit Price:</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={Number(item.unit_price ?? 0).toFixed(2)}
+                    onChange={(e) => handlePriceChange(item.product_id, e.target.value)}
+                    className="border px-2 py-1 w-28 rounded-md"
+                  />
+                </div>
+
+                <div className="ml-auto sm:ml-0 text-right sm:text-left font-medium text-blue-700">
+                  Line Total: ${Number((item.unit_price || 0) * (item.quantity || 0)).toFixed(2)}
+                </div>
               </div>
             </div>
           ))}
