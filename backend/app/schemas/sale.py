@@ -16,7 +16,7 @@ class SaleCreate(BaseModel):
     sale_date: Optional[date] = None
     notes: Optional[str] = None
     sale_type: Optional[str] = "individual"
-    # Pydantic v2: use min_length for lists
+    # Pydantic v2: require >=1 item with min_length
     items: List[SaleItemCreate] = Field(
         min_length=1, description="At least one line item is required"
     )
