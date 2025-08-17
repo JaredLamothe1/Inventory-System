@@ -28,6 +28,14 @@ interface Collection {
 
 const COLLECTIONS_URL = "/collections";
 
+/* --------------- Utils -------------- */
+function truncate(text: string | null | undefined, n = 120): string {
+  if (!text) return "—";
+  const s = String(text);
+  if (s.length <= n) return s;
+  return s.slice(0, n - 1) + "…";
+}
+
 /* --------------- Component -------------- */
 export default function ProductList() {
   const navigate = useNavigate();
@@ -122,7 +130,10 @@ export default function ProductList() {
   }, [searchQuery, selectedCatId, selectedCollectionId]);
 
   const filteredProducts = useMemo(
-    () => products.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())),
+    () =>
+      products.filter(p =>
+        (p.name + " " + (p.description ?? "")).toLowerCase().includes(searchQuery.toLowerCase())
+      ),
     [products, searchQuery]
   );
 
@@ -214,7 +225,6 @@ export default function ProductList() {
       });
       setCollections(cs => [...cs, res.data]);
       cancelGroupWizard();
-      // If user is currently viewing a different filter, nothing else to do.
     } catch (err: any) {
       console.error(err);
       setGroupMsg(err.response?.data?.detail ?? "Failed to create group.");
@@ -262,9 +272,7 @@ export default function ProductList() {
     try {
       await api.delete(`${COLLECTIONS_URL}/${deleteGroupId}`);
       setCollections(cs => cs.filter(c => c.id !== deleteGroupId));
-      if (selectedCollectionId === deleteGroupId) {
-        setSelectedCollectionId(null);
-      }
+      if (selectedCollectionId === deleteGroupId) setSelectedCollectionId(null);
       closeDeleteGroup();
       setRefreshTick(t => t + 1);
     } catch (err) {
@@ -284,7 +292,7 @@ export default function ProductList() {
       setEditProductsGroupId(g.id);
       setEditProductsGroupName(g.name);
 
-      // Load catalog slice (keep under your API’s max)
+      // Load catalog slice
       const list = await api.get("/products/", {
         params: { page: 0, limit: 1000, sort_by: "name", order: "asc" },
       });
@@ -321,7 +329,7 @@ export default function ProductList() {
     });
   };
   const visibleChoices = useMemo(
-    () => allProducts.filter(p => p.name.toLowerCase().includes(editProdSearch.toLowerCase())),
+    () => allProducts.filter(p => (p.name + " " + (p.description ?? "")).toLowerCase().includes(editProdSearch.toLowerCase())),
     [allProducts, editProdSearch]
   );
   const selectAllVisible = () => {
@@ -538,8 +546,8 @@ export default function ProductList() {
           <input
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search by name…"
-            className="w-full md:w-80 p-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 text-sm"
+            placeholder="Search by name or description…"
+            className="w-full md:w-96 p-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 text-sm"
           />
         </div>
 
@@ -560,6 +568,7 @@ export default function ProductList() {
                 <tr className="text-left text-gray-600 border-b">
                   {groupStep === 1 && <th className="py-2 pr-4 w-12">Pick</th>}
                   <th className="py-2 pr-4">Name</th>
+                  <th className="py-2 pr-4 w-[32rem]">Description</th>
                   <th className="py-2 pr-4">Category</th>
                   <th className="py-2 pr-4">Stock</th>
                   <th className="py-2 pr-4">Sale Price</th>
@@ -584,6 +593,11 @@ export default function ProductList() {
                         <button className="text-blue-700 hover:underline" onClick={() => navigate(`/products/${p.id}`)}>
                           {p.name}
                         </button>
+                      </td>
+                      <td className="py-2 pr-4">
+                        <div title={p.description ?? ""} className="text-gray-700">
+                          {truncate(p.description, 120)}
+                        </div>
                       </td>
                       <td className="py-2 pr-4">{p.category_name ?? "—"}</td>
                       <td className="py-2 pr-4">{getStockBadge(p)}</td>
@@ -793,6 +807,9 @@ export default function ProductList() {
                           onChange={() => toggleMember(p.id)}
                         />
                         <span className="text-sm">{p.name}</span>
+                        <span className="ml-2 text-xs text-gray-500 truncate" title={p.description ?? ""}>
+                          {truncate(p.description, 80)}
+                        </span>
                         <span className="ml-auto text-[10px] text-gray-500">{p.category_name ?? "—"}</span>
                       </li>
                     );
