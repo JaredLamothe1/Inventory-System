@@ -48,25 +48,25 @@ export default function ProductList() {
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [refreshTick, setRefreshTick] = useState(0); // bump to force list refetch
+  const [refreshTick, setRefreshTick] = useState(0);
 
   // Inline stock edit
   const [stockEditId, setStockEditId] = useState<number | null>(null);
   const [stockInput, setStockInput] = useState(0);
 
-  // Group creation flow
-  const [groupStep, setGroupStep] = useState<0 | 1>(0);
+  // Create group flow
+  const [showNameModal, setShowNameModal] = useState(false);
   const [groupNameDraft, setGroupNameDraft] = useState("");
+  const [groupStep, setGroupStep] = useState<0 | 1>(0); // 0 = no wizard, 1 = picking products
   const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(new Set());
   const [groupMsg, setGroupMsg] = useState<string | null>(null);
-  const [showNameModal, setShowNameModal] = useState(false);
 
   // Add-product modal
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Rename / Delete
+  const [menuGroupId, setMenuGroupId] = useState<number | null>(null);
   const [editGroupId, setEditGroupId] = useState<number | null>(null);
-
   const [editGroupName, setEditGroupName] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [deleteGroupId, setDeleteGroupId] = useState<number | null>(null);
@@ -80,9 +80,6 @@ export default function ProductList() {
   const [editProdSearch, setEditProdSearch] = useState("");
   const [editProductsLoading, setEditProductsLoading] = useState(false);
   const [editProductsError, setEditProductsError] = useState<string | null>(null);
-
-  // Small “Edit” popover menu
-  const [menuGroupId, setMenuGroupId] = useState<number | null>(null);
 
   /* ------------ initial loads ------------ */
   useEffect(() => {
@@ -165,6 +162,7 @@ export default function ProductList() {
     setShowNameModal(true);
     setGroupStep(0);
   };
+
   const onNameSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!groupNameDraft.trim()) {
@@ -172,14 +170,16 @@ export default function ProductList() {
       return;
     }
     setShowNameModal(false);
-    setGroupStep(1);
+    setGroupStep(1); // show checkboxes + top banner
   };
+
   const cancelGroupWizard = () => {
     setShowNameModal(false);
     setGroupStep(0);
     setGroupMsg(null);
     setSelectedProductIds(new Set());
   };
+
   const toggleSelectProduct = (id: number) => {
     setSelectedProductIds(prev => {
       const nxt = new Set(prev);
@@ -187,6 +187,23 @@ export default function ProductList() {
       return nxt;
     });
   };
+
+  const selectAllVisibleForWizard = () => {
+    setSelectedProductIds(prev => {
+      const nxt = new Set(prev);
+      filteredProducts.forEach(p => nxt.add(p.id));
+      return nxt;
+    });
+  };
+
+  const clearAllVisibleForWizard = () => {
+    setSelectedProductIds(prev => {
+      const nxt = new Set(prev);
+      filteredProducts.forEach(p => nxt.delete(p.id));
+      return nxt;
+    });
+  };
+
   const createGroup = async () => {
     if (!groupNameDraft.trim()) return setGroupMsg("Group name is required.");
     if (selectedProductIds.size === 0) return setGroupMsg("Pick at least one product.");
@@ -197,6 +214,7 @@ export default function ProductList() {
       });
       setCollections(cs => [...cs, res.data]);
       cancelGroupWizard();
+      // If user is currently viewing a different filter, nothing else to do.
     } catch (err: any) {
       console.error(err);
       setGroupMsg(err.response?.data?.detail ?? "Failed to create group.");
@@ -248,7 +266,7 @@ export default function ProductList() {
         setSelectedCollectionId(null);
       }
       closeDeleteGroup();
-      setRefreshTick(t => t + 1); // refresh product list if needed
+      setRefreshTick(t => t + 1);
     } catch (err) {
       console.error(err);
     }
@@ -259,14 +277,14 @@ export default function ProductList() {
     setEditProductsError(null);
     setEditProductsLoading(true);
     try {
-      // Load current group products (expects products[] in the payload)
+      // Load group detail to pre-check items
       const detail = await api.get(`${COLLECTIONS_URL}/${g.id}`);
       const ids = new Set<number>((detail.data?.products || []).map((p: Product) => p.id));
       setMembership(ids);
       setEditProductsGroupId(g.id);
       setEditProductsGroupName(g.name);
 
-      // Load a big slice of catalog for selection (safe limit to avoid 422)
+      // Load catalog slice (keep under your API’s max)
       const list = await api.get("/products/", {
         params: { page: 0, limit: 1000, sort_by: "name", order: "asc" },
       });
@@ -277,7 +295,7 @@ export default function ProductList() {
         err?.response?.data?.detail ||
           "Couldn't load products. Try again or narrow your catalog."
       );
-      // Keep modal open so user sees the error & can retry
+      // Keep modal open so user can retry
       setEditProductsGroupId(g.id);
       setEditProductsGroupName(g.name);
       setAllProducts([]);
@@ -344,7 +362,7 @@ export default function ProductList() {
       setCollections(cs =>
         cs.map(c => (c.id === editProductsGroupId ? { ...c, product_count: product_ids.length } : c))
       );
-      // if viewing this group in the table, refresh
+      // refresh table if viewing this group
       if (selectedCollectionId === editProductsGroupId) setRefreshTick(t => t + 1);
       closeEditProducts();
     } catch (err) {
@@ -466,15 +484,22 @@ export default function ProductList() {
       <div className="bg-white rounded-xl shadow p-6 relative">
         {/* Group selection banner (create new) */}
         {groupStep === 1 && (
-          <div className="absolute inset-x-0 top-0 bg-blue-50 border-b border-blue-200 p-3 flex items-center gap-3">
+          <div className="absolute inset-x-0 top-0 bg-blue-50 border-b border-blue-200 p-3 flex flex-wrap items-center gap-3">
             <span className="text-sm">
-              Selecting for <strong>{groupNameDraft}</strong>
+              Picking products for <strong>{groupNameDraft}</strong>
             </span>
             <button onClick={createGroup} className="px-3 py-1 text-xs bg-green-600 text-white rounded">
-              Create
+              Create group
             </button>
             <button onClick={cancelGroupWizard} className="px-3 py-1 text-xs bg-gray-300 rounded">
               Cancel
+            </button>
+            <span className="text-xs">Selected: <strong>{selectedProductIds.size}</strong></span>
+            <button onClick={selectAllVisibleForWizard} className="px-2 py-1 text-xs border rounded">
+              Select All (visible)
+            </button>
+            <button onClick={clearAllVisibleForWizard} className="px-2 py-1 text-xs border rounded">
+              Clear (visible)
             </button>
             {groupMsg && <span className="text-xs text-red-600">{groupMsg}</span>}
           </div>
@@ -533,6 +558,7 @@ export default function ProductList() {
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="text-left text-gray-600 border-b">
+                  {groupStep === 1 && <th className="py-2 pr-4 w-12">Pick</th>}
                   <th className="py-2 pr-4">Name</th>
                   <th className="py-2 pr-4">Category</th>
                   <th className="py-2 pr-4">Stock</th>
@@ -541,48 +567,60 @@ export default function ProductList() {
                 </tr>
               </thead>
               <tbody>
-                {filteredProducts.map(p => (
-                  <tr key={p.id} className={`${getRowBg(p)} border-b last:border-b-0`}>
-                    <td className="py-2 pr-4">
-                      <button className="text-blue-700 hover:underline" onClick={() => navigate(`/products/${p.id}`)}>
-                        {p.name}
-                      </button>
-                    </td>
-                    <td className="py-2 pr-4">{p.category_name ?? "—"}</td>
-                    <td className="py-2 pr-4">{getStockBadge(p)}</td>
-                    <td className="py-2 pr-4">
-                      {p.resolved_price ?? p.sale_price ?? p.unit_cost ?? "—"}
-                    </td>
-                    <td className="py-2 pr-4">
-                      {stockEditId === p.id ? (
-                        <div className="flex items-center gap-2">
+                {filteredProducts.map(p => {
+                  const checked = selectedProductIds.has(p.id);
+                  return (
+                    <tr key={p.id} className={`${getRowBg(p)} border-b last:border-b-0`}>
+                      {groupStep === 1 && (
+                        <td className="py-2 pr-4">
                           <input
-                            type="number"
-                            className="w-24 border rounded p-1"
-                            value={stockInput}
-                            onChange={e => setStockInput(Number(e.target.value))}
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleSelectProduct(p.id)}
                           />
-                          <button className="p-1 rounded bg-green-600 text-white" onClick={() => handleStockUpdate(p)}>
-                            <Check className="w-4 h-4" />
-                          </button>
-                          <button className="p-1 rounded bg-gray-300" onClick={() => setStockEditId(null)}>
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          className="px-2 py-1 border rounded text-xs"
-                          onClick={() => {
-                            setStockEditId(p.id);
-                            setStockInput(p.quantity_in_stock);
-                          }}
-                        >
-                          Edit Stock
-                        </button>
+                        </td>
                       )}
-                    </td>
-                  </tr>
-                ))}
+                      <td className="py-2 pr-4">
+                        <button className="text-blue-700 hover:underline" onClick={() => navigate(`/products/${p.id}`)}>
+                          {p.name}
+                        </button>
+                      </td>
+                      <td className="py-2 pr-4">{p.category_name ?? "—"}</td>
+                      <td className="py-2 pr-4">{getStockBadge(p)}</td>
+                      <td className="py-2 pr-4">
+                        {p.resolved_price ?? p.sale_price ?? p.unit_cost ?? "—"}
+                      </td>
+                      <td className="py-2 pr-4">
+                        {stockEditId === p.id ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              className="w-24 border rounded p-1"
+                              value={stockInput}
+                              onChange={e => setStockInput(Number(e.target.value))}
+                            />
+                            <button className="p-1 rounded bg-green-600 text-white" onClick={() => handleStockUpdate(p)}>
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button className="p-1 rounded bg-gray-300" onClick={() => setStockEditId(null)}>
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            className="px-2 py-1 border rounded text-xs"
+                            onClick={() => {
+                              setStockEditId(p.id);
+                              setStockInput(p.quantity_in_stock);
+                            }}
+                          >
+                            Edit Stock
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
 
@@ -614,7 +652,7 @@ export default function ProductList() {
             title="Add Product"
             onClose={() => {
               setIsModalOpen(false);
-              setRefreshTick(t => t + 1); // refresh the table when modal closes
+              setRefreshTick(t => t + 1);
             }}
           >
             <AddProductForm catTree={[]} />
@@ -623,7 +661,7 @@ export default function ProductList() {
                 className="px-4 py-2 border rounded text-sm"
                 onClick={() => {
                   setIsModalOpen(false);
-                  setRefreshTick(t => t + 1); // also refresh if user clicks Done
+                  setRefreshTick(t => t + 1);
                 }}
               >
                 Done
@@ -632,6 +670,33 @@ export default function ProductList() {
           </Modal>
         )}
       </div>
+
+      {/* Name group modal (Step 0) */}
+      {showNameModal && (
+        <Modal onClose={cancelGroupWizard} title="Name your group">
+          <form onSubmit={onNameSubmit} className="space-y-4 text-sm">
+            {groupMsg && <div className="text-red-600 text-xs">{groupMsg}</div>}
+            <div>
+              <label className="block mb-1 font-medium">Group name</label>
+              <input
+                autoFocus
+                value={groupNameDraft}
+                onChange={e => setGroupNameDraft(e.target.value)}
+                className="w-full border rounded p-2"
+                placeholder="e.g., Starter Bundle"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={cancelGroupWizard} className="px-4 py-2 border rounded text-sm">
+                Cancel
+              </button>
+              <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded text-sm">
+                Next: pick products
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
 
       {/* Rename group modal */}
       {editGroupId !== null && (
