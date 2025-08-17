@@ -1,65 +1,98 @@
-# app/database.py
+# database.py
+"""
+Central SQLAlchemy setup:
+- Reads DATABASE_URL from the environment.
+- Forces sslmode=require for Render Postgres if missing.
+- Exposes: engine, SessionLocal, Base, and get_db() for FastAPI deps.
+"""
+
 import os
-from pathlib import Path
-from typing import Generator
-
-from dotenv import load_dotenv
+from urllib.parse import urlparse, urlunparse
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base, Session
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-# ---------------- Env ----------------
-# Load .env sitting in backend/ (adjust if yours lives elsewhere)
-BACKEND_DIR = Path(__file__).resolve().parents[1]
-load_dotenv(BACKEND_DIR / ".env")
 
-APP_ENV = os.getenv("APP_ENV", os.getenv("ENV", "development")).lower()
-DATABASE_URL = "postgresql://inventory_main_user:LsaUGSRqODVxHD64tnrOlJO06yaxUCue@dpg-d2f59ebuibrs73fa6qu0-a.virginia-postgres.render.com/inventory_main"
+def _require_ssl(url: str) -> str:
+    """Ensure sslmode=require is present for Postgres connections (Render needs this)."""
+    if not url or not url.startswith(("postgresql://", "postgresql+psycopg2://")):
+        return url
+    if "sslmode=" in url:
+        return url
+    return url + ("&sslmode=require" if "?" in url else "?sslmode=require")
 
-# Only used in dev if DATABASE_URL is blank
-DEV_DB_PATH = os.getenv(
-    "DEV_DB_PATH",
-    r"C:/Users/JLamo/Documents/Inventory-System/test.db"  # <- change once, done
+
+def _mask_dsn(url: str) -> str:
+    """Hide the password portion of the DSN for safe logging."""
+    try:
+        u = urlparse(url)
+        if u.password:
+            netloc = u.netloc.replace(f":{u.password}@", ":***@")
+            u = u._replace(netloc=netloc)
+        return urlunparse(u)
+    except Exception:
+        return "<unable to mask DSN>"
+
+
+# ---- Load and validate DATABASE_URL -------------------------------------------------
+DATABASE_URL = (
+    os.getenv("DATABASE_URL")  # e.g. from Render
+    or os.getenv("DB_URL")     # optional fallback
+    or ""
 )
 
-# Optional safety: ensure we don't silently create/use another sqlite file
-DEV_GUARD = os.getenv("DEV_GUARD", "true").lower() == "true"
-
-# ---------------- Pick the URL ----------------
 if not DATABASE_URL:
-    # Fall back to local sqlite file
-    DATABASE_URL = f"sqlite:///{Path(DEV_DB_PATH).as_posix()}"
+    raise RuntimeError(
+        "DATABASE_URL is not set. Provide a PostgreSQL DSN, e.g. "
+        "postgresql://user:password@host/dbname?sslmode=require"
+    )
 
-# ---------------- Engine ----------------
-is_sqlite = DATABASE_URL.startswith("sqlite")
+DATABASE_URL = _require_ssl(DATABASE_URL)
+
+# ---- Engine / Session / Base --------------------------------------------------------
+# pool_pre_ping avoids stale connections on server restarts / network hiccups.
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False} if is_sqlite else {},
     pool_pre_ping=True,
+    future=True,  # SQLAlchemy 2.0-style
+    # echo=True,  # uncomment for verbose SQL logging during local debugging
 )
 
-# ---------------- Debug / Guard ----------------
-print(f"[DB] APP_ENV={APP_ENV}")
-print(f"[DB] DATABASE_URL={DATABASE_URL}")
+SessionLocal = sessionmaker(
+    bind=engine,
+    autocommit=False,
+    autoflush=False,
+    future=True,
+)
 
-if is_sqlite:
-    db_file = Path(DATABASE_URL.replace("sqlite:///", ""))
-    resolved = db_file.resolve()
-    print(f"[DB] RESOLVED SQLITE PATH={resolved}")
-
-    if APP_ENV == "development" and DEV_GUARD:
-        expected = Path(DEV_DB_PATH).resolve()
-        if resolved != expected:
-            raise RuntimeError(f"[DB] WRONG SQLITE FILE! {resolved} != {expected}\n"
-                               f"Set DEV_DB_PATH correctly or disable DEV_GUARD.")
-
-# ---------------- Session / Base ----------------
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Single declarative base for all models. Import this Base in every model file.
 Base = declarative_base()
 
 
-def get_db() -> Generator[Session, None, None]:
+# ---- FastAPI dependency --------------------------------------------------------------
+def get_db():
+    """
+    Dependency that provides a DB session and ensures it's closed.
+    Usage:
+        from .database import get_db
+        def endpoint(dep: Session = Depends(get_db)): ...
+    """
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+
+# ---- Optional: lightweight startup log (safe; password masked) ----------------------
+print(f"[database] Using DSN: { _mask_dsn(DATABASE_URL) }")
+
+"""
+NOTE:
+- Do NOT import model modules here to avoid circular imports.
+- To create tables on a fresh database, use a separate script (e.g. create_tables.py)
+  that imports ALL your model modules (so they register on Base.metadata) and then calls:
+      from database import Base, engine
+      Base.metadata.create_all(bind=engine)
+- 'create_all' only creates missing tables; it will NOT add new columns to existing tables.
+  Use migrations (Alembic) or drop/recreate for schema changes.
+"""
