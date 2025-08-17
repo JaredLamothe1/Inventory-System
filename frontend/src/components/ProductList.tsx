@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useMemo } from "react";
-import { Pencil, Check, X, Plus, Trash2 } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Pencil, Plus, Trash2, ListChecks, Check, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "@/api";
 import AddProductForm from "./AddProductForm";
@@ -48,12 +48,13 @@ export default function ProductList() {
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [refreshTick, setRefreshTick] = useState(0); // bump to force list refetch
 
   // Inline stock edit
   const [stockEditId, setStockEditId] = useState<number | null>(null);
   const [stockInput, setStockInput] = useState(0);
 
-  // Grouping flow (unchanged for creating new group)
+  // Group creation flow
   const [groupStep, setGroupStep] = useState<0 | 1>(0);
   const [groupNameDraft, setGroupNameDraft] = useState("");
   const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(new Set());
@@ -63,20 +64,32 @@ export default function ProductList() {
   // Add-product modal
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // NEW: edit/delete group modals
+  // Rename / Delete
   const [editGroupId, setEditGroupId] = useState<number | null>(null);
   const [editGroupName, setEditGroupName] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [deleteGroupId, setDeleteGroupId] = useState<number | null>(null);
   const [deleteGroupName, setDeleteGroupName] = useState<string>("");
 
-  // Fetch categories & collections once
+  // NEW: Edit products within a group
+  const [editProductsGroupId, setEditProductsGroupId] = useState<number | null>(null);
+  const [editProductsGroupName, setEditProductsGroupName] = useState<string>("");
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [membership, setMembership] = useState<Set<number>>(new Set());
+  const [editProdSearch, setEditProdSearch] = useState("");
+
+  /* ------------ initial loads ------------ */
   useEffect(() => {
-    api.get("/categories/tree").then(r => setCatTree(r.data)).catch(() => setCatTree([]));
-    api.get(COLLECTIONS_URL).then(r => setCollections(r.data)).catch(() => setCollections([]));
+    api.get("/categories/tree")
+      .then(r => setCatTree(r.data))
+      .catch(() => setCatTree([]));
+
+    api.get(COLLECTIONS_URL)
+      .then(r => setCollections(r.data))
+      .catch(() => setCollections([]));
   }, []);
 
-  // Fetch products whenever filters change
+  /* -------- products list (table) -------- */
   useEffect(() => {
     const [sort_by, order] = sortOption.split("-");
     const params: any = { page: currentPage - 1, limit: 25, sort_by, order };
@@ -98,9 +111,9 @@ export default function ProductList() {
         setFetchError("Error fetching products.");
       })
       .finally(() => setLoading(false));
-  }, [currentPage, sortOption, selectedCatId, selectedCollectionId]);
+  }, [currentPage, sortOption, selectedCatId, selectedCollectionId, refreshTick]);
 
-  // Reset page on search or filter change
+  // Reset page on search/filter change
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, selectedCatId, selectedCollectionId]);
@@ -110,10 +123,9 @@ export default function ProductList() {
     [products, searchQuery]
   );
 
-  // Inline stock update
+  /* ------------- stock helpers ------------ */
   const handleStockUpdate = (product: Product) => {
-    api
-      .patch(`/products/${product.id}`, { quantity_in_stock: stockInput })
+    api.patch(`/products/${product.id}`, { quantity_in_stock: stockInput })
       .then(r => {
         setProducts(ps => ps.map(p => (p.id === product.id ? r.data : p)));
         setStockEditId(null);
@@ -121,7 +133,16 @@ export default function ProductList() {
       .catch(console.error);
   };
 
-  // Row background based on stock
+  const getStockBadge = (p: Product) => {
+    const t = p.reorder_threshold ?? 0;
+    const qty = p.quantity_in_stock;
+    const cls =
+      qty === 0 ? "bg-red-100 text-red-800"
+      : qty < t ? "bg-yellow-100 text-yellow-800"
+      : "bg-green-100 text-green-800";
+    return <span className={`px-2 py-1 text-xs font-semibold rounded-full ${cls}`}>{qty}</span>;
+  };
+
   const getRowBg = (p: Product) => {
     const t = p.reorder_threshold ?? 0;
     if (p.quantity_in_stock < 0) return "bg-red-50";
@@ -130,7 +151,7 @@ export default function ProductList() {
     return "";
   };
 
-  // Group wizard handlers (create new)
+  /* ---- create new group (wizard) ---- */
   const startGroupWizard = () => {
     setGroupNameDraft("");
     setSelectedProductIds(new Set());
@@ -176,7 +197,7 @@ export default function ProductList() {
     }
   };
 
-  /* ---------- NEW: rename group ---------- */
+  /* -------- rename group -------- */
   const openRenameGroup = (g: Collection) => {
     setEditGroupId(g.id);
     setEditGroupName(g.name);
@@ -203,7 +224,7 @@ export default function ProductList() {
     }
   };
 
-  /* ---------- NEW: delete group ---------- */
+  /* -------- delete group -------- */
   const openDeleteGroup = (g: Collection) => {
     setDeleteGroupId(g.id);
     setDeleteGroupName(g.name);
@@ -221,8 +242,84 @@ export default function ProductList() {
         setSelectedCollectionId(null);
       }
       closeDeleteGroup();
+      setRefreshTick(t => t + 1); // refresh product list if needed
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  /* ---- NEW: edit products in a group ---- */
+  const openEditProducts = async (g: Collection) => {
+    try {
+      // Load current group products
+      const detail = await api.get(`${COLLECTIONS_URL}/${g.id}`); // includes products[]
+      const ids = new Set<number>((detail.data?.products || []).map((p: Product) => p.id));
+      setMembership(ids);
+      setEditProductsGroupId(g.id);
+      setEditProductsGroupName(g.name);
+
+      // Load catalog (big limit to avoid pagination UI here)
+      const list = await api.get("/products/", {
+        params: { page: 0, limit: 10000, sort_by: "name", order: "asc" },
+      });
+      setAllProducts(list.data.products || []);
+      setEditProdSearch("");
+    } catch (err) {
+      console.error(err);
+      // if something failed, close modal
+      setEditProductsGroupId(null);
+    }
+  };
+  const closeEditProducts = () => {
+    setEditProductsGroupId(null);
+    setEditProductsGroupName("");
+    setAllProducts([]);
+    setMembership(new Set());
+    setEditProdSearch("");
+  };
+  const toggleMember = (id: number) => {
+    setMembership(prev => {
+      const nxt = new Set(prev);
+      nxt.has(id) ? nxt.delete(id) : nxt.add(id);
+      return nxt;
+    });
+  };
+  const visibleChoices = useMemo(
+    () =>
+      allProducts.filter(p =>
+        p.name.toLowerCase().includes(editProdSearch.toLowerCase())
+      ),
+    [allProducts, editProdSearch]
+  );
+  const selectAllVisible = () => {
+    setMembership(prev => {
+      const nxt = new Set(prev);
+      visibleChoices.forEach(p => nxt.add(p.id));
+      return nxt;
+    });
+  };
+  const clearAllVisible = () => {
+    setMembership(prev => {
+      const nxt = new Set(prev);
+      visibleChoices.forEach(p => nxt.delete(p.id));
+      return nxt;
+    });
+  };
+  const saveMembers = async () => {
+    if (!editProductsGroupId) return;
+    try {
+      const product_ids = Array.from(membership);
+      await api.patch(`${COLLECTIONS_URL}/${editProductsGroupId}`, { product_ids });
+      // update count locally
+      setCollections(cs =>
+        cs.map(c => (c.id === editProductsGroupId ? { ...c, product_count: product_ids.length } : c))
+      );
+      // if viewing this group in the table, refresh
+      if (selectedCollectionId === editProductsGroupId) setRefreshTick(t => t + 1);
+      closeEditProducts();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to update group members.");
     }
   };
 
@@ -259,54 +356,49 @@ export default function ProductList() {
             <p className="text-xs text-gray-500">No groups yet.</p>
           ) : (
             <ul className="space-y-1">
-              {collections.map(g => {
-                const isSelected = selectedCollectionId === g.id;
-                return (
-                  <li key={g.id}>
-                    <div className={`flex items-center justify-between rounded ${isSelected ? "bg-blue-100 text-blue-700" : "hover:bg-gray-100"}`}>
-                      <button
-                        onClick={() => {
-                          setSelectedCollectionId(g.id);
-                          setSelectedCatId(null);
-                        }}
-                        className="flex-1 text-left text-sm px-2 py-1 truncate"
-                        title={g.name}
-                      >
-                        {g.name}
-                        {typeof g.product_count === "number" && (
-                          <span className="ml-2 text-[10px] text-gray-500">
-                            ({g.product_count})
-                          </span>
-                        )}
-                      </button>
+              {collections.map(g => (
+                <li key={g.id} className="flex items-center justify-between gap-2">
+                  <button
+                    onClick={() => {
+                      setSelectedCollectionId(g.id);
+                      setSelectedCatId(null);
+                    }}
+                    className={`flex-1 text-left text-sm px-2 py-1 rounded ${
+                      selectedCollectionId === g.id ? "bg-blue-100 text-blue-700" : "hover:bg-gray-100"
+                    }`}
+                  >
+                    {g.name}
+                    {typeof g.product_count === "number" && (
+                      <span className="ml-2 text-[10px] text-gray-500">({g.product_count})</span>
+                    )}
+                  </button>
 
-                      {/* NEW: quick actions */}
-                      <div className="flex items-center gap-1 pr-1">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openRenameGroup(g);
-                          }}
-                          className="p-1 rounded hover:bg-gray-200"
-                          title="Rename"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openDeleteGroup(g);
-                          }}
-                          className="p-1 rounded hover:bg-gray-200"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 text-red-600" />
-                        </button>
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
+                  {/* tiny action buttons */}
+                  <div className="flex items-center gap-1">
+                    <button
+                      title="Rename"
+                      onClick={() => openRenameGroup(g)}
+                      className="p-1 rounded hover:bg-gray-100"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
+                      title="Edit products"
+                      onClick={() => openEditProducts(g)}
+                      className="p-1 rounded hover:bg-gray-100"
+                    >
+                      <ListChecks className="w-4 h-4" />
+                    </button>
+                    <button
+                      title="Delete group"
+                      onClick={() => openDeleteGroup(g)}
+                      className="p-1 rounded hover:bg-red-50 text-red-600"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </li>
+              ))}
             </ul>
           )}
         </div>
@@ -314,22 +406,16 @@ export default function ProductList() {
 
       {/* Main content */}
       <div className="bg-white rounded-xl shadow p-6 relative">
-        {/* Group selection banner */}
+        {/* Group selection banner (create new) */}
         {groupStep === 1 && (
           <div className="absolute inset-x-0 top-0 bg-blue-50 border-b border-blue-200 p-3 flex items-center gap-3">
             <span className="text-sm">
               Selecting for <strong>{groupNameDraft}</strong>
             </span>
-            <button
-              onClick={createGroup}
-              className="px-3 py-1 text-xs bg-green-600 text-white rounded"
-            >
+            <button onClick={createGroup} className="px-3 py-1 text-xs bg-green-600 text-white rounded">
               Create
             </button>
-            <button
-              onClick={cancelGroupWizard}
-              className="px-3 py-1 text-xs bg-gray-300 rounded"
-            >
+            <button onClick={cancelGroupWizard} className="px-3 py-1 text-xs bg-gray-300 rounded">
               Cancel
             </button>
             {groupMsg && <span className="text-xs text-red-600">{groupMsg}</span>}
@@ -337,11 +423,7 @@ export default function ProductList() {
         )}
 
         {/* Header & controls */}
-        <div
-          className={`flex justify-between items-center mb-6 ${
-            groupStep === 1 ? "mt-12" : ""
-          }`}
-        >
+        <div className={`flex justify-between items-center mb-6 ${groupStep === 1 ? "mt-12" : ""}`}>
           <h1 className="text-3xl font-bold text-blue-700">Products</h1>
           <div className="flex items-center gap-4">
             <select
@@ -365,9 +447,7 @@ export default function ProductList() {
 
         {/* Fetch error */}
         {fetchError && (
-          <div className="mb-4 p-3 bg-red-50 text-red-700 rounded text-sm">
-            {fetchError}
-          </div>
+          <div className="mb-4 p-3 bg-red-50 text-red-700 rounded text-sm">{fetchError}</div>
         )}
 
         {/* Search */}
@@ -380,208 +460,111 @@ export default function ProductList() {
           />
         </div>
 
-        {/* Loading / Empty */}
+        {/* Loading / Table */}
         {loading ? (
           <div className="text-center text-gray-700 py-12">Loading…</div>
         ) : filteredProducts.length === 0 ? (
           <div className="text-center text-gray-600 py-12 space-y-4">
             <p>No products found.</p>
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="px-6 py-2 bg-blue-600 text-white rounded shadow-sm"
-            >
+            <button onClick={() => setIsModalOpen(true)} className="px-6 py-2 bg-blue-600 text-white rounded shadow-sm">
               Add product
             </button>
           </div>
         ) : (
-          <>
-            {/* Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full table-fixed border-collapse">
-                <colgroup>
-                  {groupStep === 1 && <col style={{ width: "50px" }} />}
-                  <col style={{ width: "260px" }} /> {/* Name */}
-                  <col style={{ width: "160px" }} /> {/* Category */}
-                  <col style={{ width: "320px" }} /> {/* Description */}
-                  <col style={{ width: "220px" }} /> {/* Notes */}
-                  <col style={{ width: "120px" }} /> {/* Stock */}
-                  <col /> {/* Edit */}
-                </colgroup>
-                <thead className="bg-gray-100">
-                  <tr>
-                    {groupStep === 1 && <th className="py-4 px-6"></th>}
-                    <th className="py-4 px-6 text-left text-sm">Name</th>
-                    <th className="py-4 px-6 text-left text-sm">Category</th>
-                    <th className="py-4 px-6 text-left text-sm">Description</th>
-                    <th className="py-4 px-6 text-left text-sm">Notes</th>
-                    <th className="py-4 px-6 text-right text-sm">Stock</th>
-                    <th className="py-4 px-6 text-right text-sm">Edit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredProducts.map(p => {
-                    const checked = selectedProductIds.has(p.id);
-                    return (
-                      <tr
-                        key={p.id}
-                        className={`border-b hover:bg-gray-50 ${
-                          groupStep === 1 ? "cursor-pointer" : ""
-                        } ${getRowBg(p)}`}
-                      >
-                        {/* Group checkbox */}
-                        {groupStep === 1 && (
-                          <td className="py-4 px-6 text-center">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => toggleSelectProduct(p.id)}
-                            />
-                          </td>
-                        )}
-
-                        {/* Name */}
-                        <td
-                          className="py-4 px-6 truncate whitespace-nowrap text-sm font-medium"
-                          title={p.name}
-                        >
-                          {p.name}
-                        </td>
-
-                        {/* Category */}
-                        <td
-                          className="py-4 px-6 truncate whitespace-nowrap text-sm text-gray-700"
-                          title={p.category_name || ""}
-                        >
-                          {p.category_name || "—"}
-                        </td>
-
-                        {/* Description */}
-                        <td
-                          className="py-4 px-6 truncate whitespace-nowrap text-sm text-gray-600"
-                          title={p.description || ""}
-                        >
-                          {p.description || "—"}
-                        </td>
-
-                        {/* Notes */}
-                        <td
-                          className="py-4 px-6 truncate whitespace-nowrap text-sm text-gray-600"
-                          title={p.notes || ""}
-                        >
-                          {p.notes || "—"}
-                        </td>
-
-                        {/* Stock with inline edit */}
-                        <td className="py-4 px-6 text-right text-sm">
-                          {stockEditId === p.id ? (
-                            <div className="inline-flex items-center gap-2">
-                              <input
-                                type="number"
-                                value={stockInput}
-                                onChange={e => setStockInput(Number(e.target.value))}
-                                onKeyDown={e => e.key === "Enter" && handleStockUpdate(p)}
-                                className="w-16 border p-1 rounded text-sm"
-                              />
-                              <button onClick={() => handleStockUpdate(p)}>
-                                <Check className="w-4 h-4 text-green-600" />
-                              </button>
-                              <button onClick={() => setStockEditId(null)}>
-                                <X className="w-4 h-4 text-gray-500" />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="inline-flex items-center gap-2">
-                              <span>{p.quantity_in_stock}</span>
-                              <button
-                                onClick={() => {
-                                  setStockEditId(p.id);
-                                  setStockInput(p.quantity_in_stock);
-                                }}
-                                className="text-gray-500"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                            </div>
-                          )}
-                        </td>
-
-                        {/* Edit button */}
-                        <td className="py-4 px-6 text-right text-sm">
-                          <button
-                            onClick={() => navigate(`/products/${p.id}`)}
-                            className="text-blue-600 hover:underline"
-                          >
-                            Edit
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-600 border-b">
+                  <th className="py-2 pr-4">Name</th>
+                  <th className="py-2 pr-4">Category</th>
+                  <th className="py-2 pr-4">Stock</th>
+                  <th className="py-2 pr-4">Sale Price</th>
+                  <th className="py-2 pr-4">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredProducts.map(p => (
+                  <tr key={p.id} className={`${getRowBg(p)} border-b last:border-b-0`}>
+                    <td className="py-2 pr-4">
+                      <button className="text-blue-700 hover:underline" onClick={() => navigate(`/products/${p.id}`)}>
+                        {p.name}
+                      </button>
+                    </td>
+                    <td className="py-2 pr-4">{p.category_name ?? "—"}</td>
+                    <td className="py-2 pr-4">{getStockBadge(p)}</td>
+                    <td className="py-2 pr-4">
+                      {p.resolved_price ?? p.sale_price ?? p.unit_cost ?? "—"}
+                    </td>
+                    <td className="py-2 pr-4">
+                      {stockEditId === p.id ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            className="w-24 border rounded p-1"
+                            value={stockInput}
+                            onChange={e => setStockInput(Number(e.target.value))}
+                          />
+                          <button className="p-1 rounded bg-green-600 text-white" onClick={() => handleStockUpdate(p)}>
+                            <Check className="w-4 h-4" />
                           </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                          <button className="p-1 rounded bg-gray-300" onClick={() => setStockEditId(null)}>
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          className="px-2 py-1 border rounded text-xs"
+                          onClick={() => {
+                            setStockEditId(p.id);
+                            setStockInput(p.quantity_in_stock);
+                          }}
+                        >
+                          Edit Stock
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
 
-            {/* Pagination */}
-            <div className="mt-4 flex justify-center items-center gap-4">
+            {/* simple pager */}
+            <div className="flex justify-end gap-2 mt-4">
               <button
-                onClick={() => setCurrentPage(c => Math.max(1, c - 1))}
-                disabled={currentPage === 1}
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded disabled:bg-gray-300"
+                className="px-3 py-1 border rounded disabled:opacity-50"
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
               >
                 Prev
               </button>
-              <span className="text-sm text-gray-700">
-                Page {currentPage} of {totalPages}
+              <span className="text-xs self-center">
+                Page {currentPage} / {totalPages}
               </span>
               <button
-                onClick={() => setCurrentPage(c => Math.min(totalPages, c + 1))}
-                disabled={currentPage === totalPages}
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded disabled:bg-gray-300"
+                className="px-3 py-1 border rounded disabled:opacity-50"
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
               >
                 Next
               </button>
             </div>
-          </>
+          </div>
+        )}
+
+        {/* Add product modal */}
+        {isModalOpen && (
+          <Modal title="Add Product" onClose={() => setIsModalOpen(false)}>
+            <AddProductForm
+              onCreated={() => {
+                setIsModalOpen(false);
+                setRefreshTick(t => t + 1);
+              }}
+            />
+          </Modal>
         )}
       </div>
 
-      {/* Modals */}
-      {isModalOpen && (
-        <Modal onClose={() => setIsModalOpen(false)} title="Add Product">
-          <AddProductForm closeForm={() => setIsModalOpen(false)} catTree={catTree} />
-        </Modal>
-      )}
-
-      {showNameModal && (
-        <Modal onClose={cancelGroupWizard} title="New Group">
-          <form onSubmit={onNameSubmit} className="space-y-4 text-sm">
-            {groupMsg && <p className="text-red-600 text-xs">{groupMsg}</p>}
-            <div>
-              <label className="block mb-1 font-medium">Group name</label>
-              <input
-                value={groupNameDraft}
-                onChange={e => setGroupNameDraft(e.target.value)}
-                className="w-full border rounded p-2"
-                placeholder="e.g. Top sellers"
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={cancelGroupWizard}
-                className="px-4 py-2 border rounded text-sm"
-              >
-                Cancel
-              </button>
-              <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded text-sm">
-                Next
-              </button>
-            </div>
-          </form>
-        </Modal>
-      )}
-
-      {/* NEW: Rename group modal */}
+      {/* Rename group modal */}
       {editGroupId !== null && (
         <Modal onClose={closeRenameGroup} title="Rename Group">
           <div className="space-y-4 text-sm">
@@ -607,24 +590,80 @@ export default function ProductList() {
         </Modal>
       )}
 
-      {/* NEW: Delete group confirm */}
+      {/* Delete group confirm */}
       {deleteGroupId !== null && (
         <Modal onClose={closeDeleteGroup} title="Delete Group">
           <div className="space-y-4 text-sm">
             <p>
-              Are you sure you want to delete <strong>{deleteGroupName}</strong>?
-              This will remove the group but won’t delete any products.
+              Are you sure you want to delete <strong>{deleteGroupName}</strong>? This will remove the
+              group but won’t delete any products.
             </p>
             <div className="flex justify-end gap-2">
               <button onClick={closeDeleteGroup} className="px-4 py-2 border rounded text-sm">
                 Cancel
               </button>
-              <button
-                onClick={doDeleteGroup}
-                className="px-4 py-2 bg-red-600 text-white rounded text-sm"
-              >
+              <button onClick={doDeleteGroup} className="px-4 py-2 bg-red-600 text-white rounded text-sm">
                 Delete
               </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* NEW: Edit products in group modal */}
+      {editProductsGroupId !== null && (
+        <Modal onClose={closeEditProducts} title={`Edit Products — ${editProductsGroupName}`}>
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <input
+                value={editProdSearch}
+                onChange={e => setEditProdSearch(e.target.value)}
+                placeholder="Search products…"
+                className="flex-1 border rounded p-2 text-sm"
+              />
+              <button onClick={selectAllVisible} className="px-3 py-1 border rounded text-xs">
+                Select All
+              </button>
+              <button onClick={clearAllVisible} className="px-3 py-1 border rounded text-xs">
+                Clear
+              </button>
+            </div>
+
+            <div className="max-h-80 overflow-auto border rounded">
+              {visibleChoices.length === 0 ? (
+                <div className="p-3 text-sm text-gray-500">No products found.</div>
+              ) : (
+                <ul className="divide-y">
+                  {visibleChoices.map(p => {
+                    const checked = membership.has(p.id);
+                    return (
+                      <li key={p.id} className="flex items-center gap-2 px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleMember(p.id)}
+                        />
+                        <span className="text-sm">{p.name}</span>
+                        <span className="ml-auto text-[10px] text-gray-500">{p.category_name ?? "—"}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center text-xs text-gray-600">
+              <span>
+                Selected: <strong>{membership.size}</strong>
+              </span>
+              <div className="flex gap-2">
+                <button onClick={closeEditProducts} className="px-4 py-2 border rounded text-sm">
+                  Cancel
+                </button>
+                <button onClick={saveMembers} className="px-4 py-2 bg-blue-600 text-white rounded text-sm">
+                  Save
+                </button>
+              </div>
             </div>
           </div>
         </Modal>
@@ -643,12 +682,15 @@ const Modal = ({
   onClose: () => void;
   title: string;
 }) => (
-  <div className="fixed inset-0 z-50 flex justify-center items-center bg-black/40 p-4">
-    <div className="bg-white p-6 rounded-lg shadow-2xl w-full max-w-md relative">
-      <button onClick={onClose} className="absolute top-2 right-2 text-xl text-gray-500 hover:text-gray-700">
-        &times;
-      </button>
-      <h2 className="text-2xl font-bold mb-4 text-blue-700">{title}</h2>
+  <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+    <div className="relative bg-white rounded-lg shadow-xl w-[92vw] max-w-2xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-lg font-semibold">{title}</h3>
+        <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
+          <X className="w-5 h-5" />
+        </button>
+      </div>
       {children}
     </div>
   </div>
