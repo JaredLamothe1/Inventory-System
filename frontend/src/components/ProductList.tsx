@@ -66,6 +66,7 @@ export default function ProductList() {
 
   // Rename / Delete
   const [editGroupId, setEditGroupId] = useState<number | null>(null);
+
   const [editGroupName, setEditGroupName] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [deleteGroupId, setDeleteGroupId] = useState<number | null>(null);
@@ -77,6 +78,8 @@ export default function ProductList() {
   const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [membership, setMembership] = useState<Set<number>>(new Set());
   const [editProdSearch, setEditProdSearch] = useState("");
+  const [editProductsLoading, setEditProductsLoading] = useState(false);
+  const [editProductsError, setEditProductsError] = useState<string | null>(null);
 
   // Small “Edit” popover menu
   const [menuGroupId, setMenuGroupId] = useState<number | null>(null);
@@ -253,6 +256,8 @@ export default function ProductList() {
 
   /* ---- Edit products in a group ---- */
   const openEditProducts = async (g: Collection) => {
+    setEditProductsError(null);
+    setEditProductsLoading(true);
     try {
       // Load current group products (expects products[] in the payload)
       const detail = await api.get(`${COLLECTIONS_URL}/${g.id}`);
@@ -261,15 +266,24 @@ export default function ProductList() {
       setEditProductsGroupId(g.id);
       setEditProductsGroupName(g.name);
 
-      // Load a big slice of catalog for selection
+      // Load a big slice of catalog for selection (safe limit to avoid 422)
       const list = await api.get("/products/", {
-        params: { page: 0, limit: 10000, sort_by: "name", order: "asc" },
+        params: { page: 0, limit: 1000, sort_by: "name", order: "asc" },
       });
       setAllProducts(list.data.products || []);
-      setEditProdSearch("");
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setEditProductsGroupId(null);
+      setEditProductsError(
+        err?.response?.data?.detail ||
+          "Couldn't load products. Try again or narrow your catalog."
+      );
+      // Keep modal open so user sees the error & can retry
+      setEditProductsGroupId(g.id);
+      setEditProductsGroupName(g.name);
+      setAllProducts([]);
+    } finally {
+      setEditProductsLoading(false);
+      setEditProdSearch("");
     }
   };
   const closeEditProducts = () => {
@@ -278,6 +292,8 @@ export default function ProductList() {
     setAllProducts([]);
     setMembership(new Set());
     setEditProdSearch("");
+    setEditProductsError(null);
+    setEditProductsLoading(false);
   };
   const toggleMember = (id: number) => {
     setMembership(prev => {
@@ -303,6 +319,21 @@ export default function ProductList() {
       visibleChoices.forEach(p => nxt.delete(p.id));
       return nxt;
     });
+  };
+  const reloadAllProducts = async () => {
+    setEditProductsError(null);
+    setEditProductsLoading(true);
+    try {
+      const list = await api.get("/products/", {
+        params: { page: 0, limit: 1000, sort_by: "name", order: "asc" },
+      });
+      setAllProducts(list.data.products || []);
+    } catch (err: any) {
+      console.error(err);
+      setEditProductsError(err?.response?.data?.detail || "Retry failed.");
+    } finally {
+      setEditProductsLoading(false);
+    }
   };
   const saveMembers = async () => {
     if (!editProductsGroupId) return;
@@ -652,23 +683,38 @@ export default function ProductList() {
       {editProductsGroupId !== null && (
         <Modal onClose={closeEditProducts} title={`Edit Products — ${editProductsGroupName}`}>
           <div className="space-y-3">
+            {editProductsError && (
+              <div className="p-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded">
+                {editProductsError}
+                <button
+                  className="ml-2 underline"
+                  onClick={reloadAllProducts}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
               <input
                 value={editProdSearch}
                 onChange={e => setEditProdSearch(e.target.value)}
                 placeholder="Search products…"
                 className="flex-1 border rounded p-2 text-sm"
+                disabled={editProductsLoading}
               />
-              <button onClick={selectAllVisible} className="px-3 py-1 border rounded text-xs">
+              <button onClick={selectAllVisible} className="px-3 py-1 border rounded text-xs" disabled={editProductsLoading}>
                 Select All
               </button>
-              <button onClick={clearAllVisible} className="px-3 py-1 border rounded text-xs">
+              <button onClick={clearAllVisible} className="px-3 py-1 border rounded text-xs" disabled={editProductsLoading}>
                 Clear
               </button>
             </div>
 
             <div className="max-h-80 overflow-auto border rounded">
-              {visibleChoices.length === 0 ? (
+              {editProductsLoading ? (
+                <div className="p-3 text-sm text-gray-600">Loading products…</div>
+              ) : visibleChoices.length === 0 ? (
                 <div className="p-3 text-sm text-gray-500">No products found.</div>
               ) : (
                 <ul className="divide-y">
@@ -698,7 +744,7 @@ export default function ProductList() {
                 <button onClick={closeEditProducts} className="px-4 py-2 border rounded text-sm">
                   Cancel
                 </button>
-                <button onClick={saveMembers} className="px-4 py-2 bg-blue-600 text-white rounded text-sm">
+                <button onClick={saveMembers} className="px-4 py-2 bg-blue-600 text-white rounded text-sm" disabled={editProductsLoading}>
                   Save
                 </button>
               </div>
