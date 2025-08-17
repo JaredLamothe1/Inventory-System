@@ -3,8 +3,7 @@ from __future__ import annotations
 from datetime import datetime, date
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, conlist
-
+from pydantic import BaseModel, Field
 
 # --------- Incoming (request) models ---------
 
@@ -13,14 +12,14 @@ class SaleItemCreate(BaseModel):
     quantity: int = Field(gt=0, description="Units sold must be > 0")
     unit_price: float = Field(ge=0, description="Sale price per unit must be ≥ 0")
 
-
 class SaleCreate(BaseModel):
     sale_date: Optional[date] = None
     notes: Optional[str] = None
     sale_type: Optional[str] = "individual"
-    # Require at least one line item to prevent empty sales from being created
-    items: conlist(SaleItemCreate, min_items=1)
-
+    # Pydantic v2: use min_length for lists
+    items: List[SaleItemCreate] = Field(
+        min_length=1, description="At least one line item is required"
+    )
 
 # --------- Outgoing (response) models ---------
 
@@ -29,10 +28,7 @@ class ProductOut(BaseModel):
     name: str
     category_name: Optional[str] = None
 
-    model_config = {
-        "from_attributes": True  # pydantic v2 replacement for orm_mode
-    }
-
+    model_config = {"from_attributes": True}
 
 class SaleItemOut(BaseModel):
     id: int
@@ -41,10 +37,7 @@ class SaleItemOut(BaseModel):
     unit_price: float
     product: ProductOut
 
-    model_config = {
-        "from_attributes": True
-    }
-
+    model_config = {"from_attributes": True}
 
 class SaleOut(BaseModel):
     id: int
@@ -53,8 +46,6 @@ class SaleOut(BaseModel):
     sale_type: Optional[str] = "individual"
     notes: Optional[str] = None
     items: List[SaleItemOut]
-    user_id: int  # user scoping
+    user_id: int
 
-    model_config = {
-        "from_attributes": True
-    }
+    model_config = {"from_attributes": True}
