@@ -578,15 +578,26 @@ export default function ProductList() {
           </div>
         )}
 
-        {/* Add product modal */}
         {isModalOpen && (
-          <Modal title="Add Product" onClose={() => setIsModalOpen(false)}>
-            <AddProductForm
-              onCreated={() => {
-                setIsModalOpen(false);
-                setRefreshTick(t => t + 1);
-              }}
-            />
+          <Modal
+            title="Add Product"
+            onClose={() => {
+              setIsModalOpen(false);
+              setRefreshTick(t => t + 1); // refresh the table when modal closes
+            }}
+          >
+            <AddProductForm catTree={[]} />
+            <div className="mt-4 text-right">
+              <button
+                className="px-4 py-2 border rounded text-sm"
+                onClick={() => {
+                  setIsModalOpen(false);
+                  setRefreshTick(t => t + 1); // also refresh if user clicks Done
+                }}
+              >
+                Done
+              </button>
+            </div>
           </Modal>
         )}
       </div>
