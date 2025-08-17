@@ -25,7 +25,6 @@ def create_sale(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Schema now enforces min_items=1, but keep a defensive check
     if not sale_data.items:
         raise HTTPException(status_code=400, detail="Sale must include at least one item.")
 
@@ -38,7 +37,6 @@ def create_sale(
         )
         db.add(new_sale)
 
-        # Build all items first (no commit yet)
         for item in sale_data.items:
             product = (
                 db.query(Product)
@@ -48,23 +46,21 @@ def create_sale(
             if not product:
                 raise HTTPException(status_code=404, detail=f"Product {item.product_id} not found")
 
-            # Allow oversell; just warn
             if (product.quantity_in_stock or 0) < item.quantity:
                 print(
                     f"⚠️ Oversell: '{product.name}' had {product.quantity_in_stock} in stock, "
                     f"{item.quantity} sold. Inventory will go negative."
                 )
 
-            # Create the sale line
-            line = SaleItem(
-                sale=new_sale,
-                product_id=item.product_id,
-                quantity=item.quantity,
-                unit_price=item.unit_price,
+            db.add(
+                SaleItem(
+                    sale=new_sale,
+                    product_id=item.product_id,
+                    quantity=item.quantity,
+                    unit_price=item.unit_price,
+                )
             )
-            db.add(line)
 
-            # Decrement inventory and log
             product.quantity_in_stock = (product.quantity_in_stock or 0) - item.quantity
             db.add(
                 InventoryLog(
@@ -75,12 +71,9 @@ def create_sale(
                 )
             )
 
-        # Single commit ensures no hollow sale rows
         db.commit()
-        # Refresh with relationships for response
         db.refresh(new_sale)
         return new_sale
-
     except Exception:
         db.rollback()
         raise
@@ -102,7 +95,7 @@ def update_sale(
         if not sale:
             raise HTTPException(status_code=404, detail="Sale not found")
 
-        # Revert inventory from existing items
+        # revert inventory from existing items
         for item in sale.items:
             product = (
                 db.query(Product)
@@ -120,15 +113,18 @@ def update_sale(
                     )
                 )
 
-        # Replace sale items
+        # remove existing children with bulk delete,
+        # THEN clear the in-session relationship to avoid stale sync
         db.query(SaleItem).filter(SaleItem.sale_id == sale_id).delete(synchronize_session=False)
+        sale.items = []          # clear in-session collection
+        db.flush()               # ensure state is consistent before adding new rows
 
-        # Update header fields
+        # header fields
         sale.sale_date = updated_data.sale_date
         sale.notes = updated_data.notes
         sale.sale_type = updated_data.sale_type or sale.sale_type
 
-        # Add new items and apply inventory changes
+        # add new items and apply inventory changes
         for upd in updated_data.items:
             product = (
                 db.query(Product)
@@ -152,7 +148,6 @@ def update_sale(
                     unit_price=upd.unit_price,
                 )
             )
-
             product.quantity_in_stock = (product.quantity_in_stock or 0) - upd.quantity
             db.add(
                 InventoryLog(
@@ -166,7 +161,6 @@ def update_sale(
         db.commit()
         db.refresh(sale)
         return sale
-
     except Exception:
         db.rollback()
         raise
@@ -176,7 +170,6 @@ def get_all_sales(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Exclude legacy empty sales so they don’t show up in Analytics
     return (
         db.query(Sale)
         .options(
@@ -185,7 +178,7 @@ def get_all_sales(
             .joinedload(Product.category)
         )
         .filter(Sale.user_id == current_user.id)
-        .filter(Sale.items.any())  # <-- ignore itemless sales
+        .filter(Sale.items.any())
         .all()
     )
 
@@ -225,7 +218,8 @@ def delete_sale(
         if not sale:
             raise HTTPException(status_code=404, detail="Sale not found")
 
-        for item in sale.items:
+        # return inventory
+        for item in list(sale.items):
             product = (
                 db.query(Product)
                 .filter(Product.id == item.product_id, Product.user_id == current_user.id)
@@ -242,11 +236,14 @@ def delete_sale(
                     )
                 )
 
+        # bulk delete children, clear in-session relation, flush, then delete parent
         db.query(SaleItem).filter(SaleItem.sale_id == sale_id).delete(synchronize_session=False)
+        sale.items = []
+        db.flush()
+
         db.delete(sale)
         db.commit()
         return {"message": f"Sale {sale_id} deleted and inventory reverted"}
-
     except Exception:
         db.rollback()
         raise

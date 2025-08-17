@@ -5,6 +5,7 @@ interface Product {
   id: number;
   name?: string | null;
   category_id: number | null;
+  resolved_price?: number | null; // <-- use API-computed price
 }
 
 interface Category {
@@ -49,7 +50,6 @@ const AddSaleForm = () => {
     };
   };
 
-  // ---------- Load products & categories ----------
   useEffect(() => {
     const fetchAll = async () => {
       try {
@@ -78,14 +78,12 @@ const AddSaleForm = () => {
     fetchAll();
   }, []);
 
-  // ---------- Default date for new sale ----------
   useEffect(() => {
     if (!isEditing) {
       setSaleDate(new Date().toISOString().split("T")[0]);
     }
   }, [isEditing]);
 
-  // ---------- Load existing sale when editing ----------
   useEffect(() => {
     if (!isEditing || !saleId) return;
 
@@ -123,8 +121,8 @@ const AddSaleForm = () => {
     fetchSale();
   }, [isEditing, saleId, products]);
 
-  // ---------- Helpers ----------
-  const getSalePrice = (categoryId: number): number => {
+  const getSalePrice = (categoryId: number | null): number => {
+    if (categoryId == null) return 0;
     const category = categories.find((cat) => cat.id === categoryId);
     const price = category?.default_sale_price;
     return typeof price === "number" && !Number.isNaN(price) ? price : 0;
@@ -134,8 +132,9 @@ const AddSaleForm = () => {
     if (!product?.id) return;
     if (items.find((i) => i.product_id === product.id)) return;
 
-    const catId = Number(product.category_id ?? NaN);
-    const price = Number.isFinite(catId) ? getSalePrice(catId) : 0;
+    // Prefer resolved_price from /products; else fall back to category default.
+    const fallback = getSalePrice(product.category_id);
+    const price = typeof product.resolved_price === "number" ? product.resolved_price : fallback;
 
     setItems((prev) => [
       ...prev,
@@ -143,7 +142,7 @@ const AddSaleForm = () => {
         product_id: product.id,
         name: (product.name ?? "Unnamed Product").toString(),
         quantity: 1,
-        unit_price: price,
+        unit_price: Math.max(0, Number(price || 0)),
       },
     ]);
   };
@@ -158,7 +157,6 @@ const AddSaleForm = () => {
   };
 
   const handlePriceChange = (productId: number, priceInput: string) => {
-    // Allow blank while typing, clamp on commit
     let val = priceInput.trim();
     if (val === "") {
       setItems((prev) =>
@@ -207,7 +205,7 @@ const AddSaleForm = () => {
     try {
       const res = await fetch(url, {
         method,
-               headers: authHeaders(),
+        headers: authHeaders(),
         body: JSON.stringify(payload),
       });
 
@@ -223,7 +221,6 @@ const AddSaleForm = () => {
     }
   };
 
-  // ---------- Filtering (defensive) ----------
   const filteredProducts = useMemo(() => {
     const term = (searchTerm || "").toLowerCase();
     return products.filter((p) => {
@@ -247,6 +244,11 @@ const AddSaleForm = () => {
     if (!Number.isFinite(idNum)) return null;
     return getSalePrice(idNum);
   }, [selectedCategoryId, categories]);
+
+  const displayPriceFor = (p: Product) => {
+    const fallback = getSalePrice(p.category_id);
+    return typeof p.resolved_price === "number" ? p.resolved_price : fallback;
+  };
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
@@ -348,7 +350,12 @@ const AddSaleForm = () => {
               onClick={() => handleAddProduct(product)}
               className="bg-white border rounded-lg p-3 text-left shadow-sm hover:shadow-md hover:border-blue-400 transition"
             >
-              <div className="font-semibold text-gray-800">{(product.name ?? "Unnamed Product").toString()}</div>
+              <div className="font-semibold text-gray-800">
+                {(product.name ?? "Unnamed Product").toString()}
+              </div>
+              <div className="text-xs text-gray-600 mt-1">
+                ${Number(displayPriceFor(product)).toFixed(2)}
+              </div>
               <div className="text-xs text-gray-400 italic mt-1">Click to add</div>
             </button>
           ))
