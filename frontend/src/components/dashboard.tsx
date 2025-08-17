@@ -19,8 +19,7 @@ import {
   CartesianGrid,
 } from "recharts";
 
-// Keep your palette but don't rely on it being long enough.
-const COLORS = ["#8884d8", "#82ca9d", "#ffc658", "#ff8042", "#8dd1e1", "#a4de6c", "#d0ed57", "#a28ae5"];
+const COLORS = ["#8884d8", "#82ca9d", "#ffc658", "#ff8042", "#8dd1e1", "#a4de6c", "#d0ed57", "#a28ae5"] as const;
 
 type Product = {
   id: number;
@@ -90,25 +89,32 @@ const Dashboard: React.FC = () => {
   const now = new Date();
   const currentYear = now.getFullYear();
   const isInMonth = (d: Date) => d.getFullYear() === currentYear && d.getMonth() === now.getMonth();
-  const isInYear = (d: Date) => d.getFullYear() === currentYear;
+  const isInYear  = (d: Date) => d.getFullYear() === currentYear;
+  const saleDate  = (s: Sale)   => new Date(s.sale_date ?? s.created_at);
 
-  const saleDate = (s: Sale) => new Date(s.sale_date ?? s.created_at);
+  // ---------- Defensive filter: ignore empty/itemless or invalid-date sales ----------
+  const validSales = useMemo(() => {
+    return sales.filter((s) => {
+      const hasItems = Array.isArray(s.items) && s.items.length > 0;
+      const d = saleDate(s);
+      const validDate = !Number.isNaN(d.getTime());
+      return hasItems && validDate;
+    });
+  }, [sales]);
 
   // ---------- Cost basis: Weighted Avg (lifetime to the end of today) ----------
   const avgCostByProduct = useMemo(() => {
     const totalUnits: Record<number, number> = {};
     const totalCost: Record<number, number> = {};
-
     for (const po of purchaseOrders) {
       const pod = new Date(po.created_at);
       if (Number.isNaN(pod.getTime())) continue;
       for (const it of po.items) {
         const id = it.product.id;
         totalUnits[id] = (totalUnits[id] || 0) + it.quantity;
-        totalCost[id] = (totalCost[id] || 0) + it.quantity * it.unit_cost;
+        totalCost[id]  = (totalCost[id]  || 0) + it.quantity * it.unit_cost;
       }
     }
-
     const avg: Record<number, number> = {};
     for (const idStr of Object.keys(totalUnits)) {
       const id = Number(idStr);
@@ -118,15 +124,13 @@ const Dashboard: React.FC = () => {
   }, [purchaseOrders]);
 
   // ---------- Aggregations ----------
-  const ytdSales = useMemo(() => sales.filter(s => isInYear(saleDate(s))), [sales]);
-  const mtdSales = useMemo(() => sales.filter(s => isInMonth(saleDate(s))), [sales]);
+  const ytdSales = useMemo(() => validSales.filter(s => isInYear(saleDate(s))), [validSales]);
+  const mtdSales = useMemo(() => validSales.filter(s => isInMonth(saleDate(s))), [validSales]);
 
   const sumRevenue = (salesList: Sale[]) => {
     let rev = 0;
     for (const s of salesList) {
-      for (const it of s.items ?? []) {
-        rev += it.quantity * it.unit_price;
-      }
+      for (const it of s.items) rev += it.quantity * it.unit_price;
     }
     return rev;
   };
@@ -134,22 +138,17 @@ const Dashboard: React.FC = () => {
   const sumCOGS = (salesList: Sale[]) => {
     let cost = 0;
     for (const s of salesList) {
-      for (const it of s.items ?? []) {
-        cost += it.quantity * (avgCostByProduct[it.product.id] || 0);
-      }
+      for (const it of s.items) cost += it.quantity * (avgCostByProduct[it.product.id] || 0);
     }
     return cost;
   };
 
   const ytdRevenue = useMemo(() => sumRevenue(ytdSales), [ytdSales]);
-  const ytdCOGS = useMemo(() => sumCOGS(ytdSales), [ytdSales, avgCostByProduct]);
-  const ytdProfit = useMemo(() => ytdRevenue - ytdCOGS, [ytdRevenue, ytdCOGS]);
-  const ytdOrders = useMemo(() => ytdSales.length, [ytdSales]);
-  const ytdUnits = useMemo(
-    () => ytdSales.reduce((a, s) => a + (s.items?.reduce((x, i) => x + i.quantity, 0) ?? 0), 0),
-    [ytdSales]
-  );
-  const ytdAOV = useMemo(() => (ytdOrders ? ytdRevenue / ytdOrders : 0), [ytdRevenue, ytdOrders]);
+  const ytdCOGS    = useMemo(() => sumCOGS(ytdSales), [ytdSales, avgCostByProduct]);
+  const ytdProfit  = useMemo(() => ytdRevenue - ytdCOGS, [ytdRevenue, ytdCOGS]);
+  const ytdOrders  = useMemo(() => ytdSales.length, [ytdSales]);
+  const ytdUnits   = useMemo(() => ytdSales.reduce((a, s) => a + s.items.reduce((x, i) => x + i.quantity, 0), 0), [ytdSales]);
+  const ytdAOV     = useMemo(() => (ytdOrders ? ytdRevenue / ytdOrders : 0), [ytdRevenue, ytdOrders]);
 
   const mtdRevenue = useMemo(() => sumRevenue(mtdSales), [mtdSales]);
 
@@ -158,10 +157,10 @@ const Dashboard: React.FC = () => {
     const byCat: Record<string, number> = {};
     const byProduct: Record<string, number> = {};
     for (const s of ytdSales) {
-      for (const it of s.items ?? []) {
-        const cat = it.product?.category_name || "Uncategorized";
+      for (const it of s.items) {
+        const cat  = it.product?.category_name || "Uncategorized";
         const name = it.product?.name || "Unnamed";
-        const rev = it.quantity * it.unit_price;
+        const rev  = it.quantity * it.unit_price;
         byCat[cat] = (byCat[cat] || 0) + rev;
         byProduct[name] = (byProduct[name] || 0) + rev;
       }
@@ -170,7 +169,6 @@ const Dashboard: React.FC = () => {
       .sort(([, a], [, b]) => b - a)
       .slice(0, 5)
       .map(([name, value]) => ({ name, value }));
-
     return { categoryTotalsYTD: byCat, topProductsYTD: top };
   }, [ytdSales]);
 
@@ -184,18 +182,17 @@ const Dashboard: React.FC = () => {
       orders: 0,
       units: 0,
     }));
-
     for (const s of ytdSales) {
       const d = saleDate(s);
       const m = d.getMonth();
       rows[m].orders += 1;
-      for (const it of s.items ?? []) {
-        const rev = it.quantity * it.unit_price;
+      for (const it of s.items) {
+        const rev  = it.quantity * it.unit_price;
         const cost = it.quantity * (avgCostByProduct[it.product.id] || 0);
         rows[m].revenue += rev;
-        rows[m].cost += cost;
-        rows[m].profit = rows[m].revenue - rows[m].cost;
-        rows[m].units += it.quantity;
+        rows[m].cost    += cost;
+        rows[m].profit   = rows[m].revenue - rows[m].cost;
+        rows[m].units   += it.quantity;
       }
     }
     return rows;
@@ -210,10 +207,10 @@ const Dashboard: React.FC = () => {
       .slice(0, 5);
   }, [products]);
 
-  // Recent activity
+  // Recent activity (exclude empties)
   const recentSales = useMemo(
-    () => [...sales].sort((a, b) => +saleDate(b) - +saleDate(a)).slice(0, 5),
-    [sales]
+    () => [...validSales].sort((a, b) => +saleDate(b) - +saleDate(a)).slice(0, 5),
+    [validSales]
   );
   const recentPOs = useMemo(
     () => [...purchaseOrders].sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)).slice(0, 5),
@@ -285,8 +282,8 @@ const Dashboard: React.FC = () => {
             <ul className="divide-y">
               {recentSales.map((s) => {
                 const d = saleDate(s);
-                const units = s.items?.reduce((a, i) => a + i.quantity, 0) ?? 0;
-                const revenue = s.items?.reduce((a, i) => a + i.quantity * i.unit_price, 0) ?? 0;
+                const units = s.items.reduce((a, i) => a + i.quantity, 0);
+                const revenue = s.items.reduce((a, i) => a + i.quantity * i.unit_price, 0);
                 return (
                   <li key={s.id} className="py-2 flex items-center justify-between">
                     <span className="font-medium">{d.toLocaleDateString()}</span>

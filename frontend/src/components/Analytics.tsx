@@ -25,8 +25,6 @@ type Sale = {
 type POProduct = {
   id: number;
   name: string;
-  // purchase order product includes a nested "category" in your schema,
-  // but we only need id for cost basis here
 };
 
 type PurchaseItem = {
@@ -96,8 +94,10 @@ const Analytics: React.FC = () => {
     return d.getFullYear() === selectedYear;
   };
 
+  // Ignore itemless/empty sales defensively
   const filteredSales = useMemo(() => {
     return sales.filter((s) => {
+      if (!s.items || s.items.length === 0) return false;
       const d = new Date(s.sale_date ?? s.created_at);
       return !Number.isNaN(d.getTime()) && periodFilter(d);
     });
@@ -245,16 +245,14 @@ const Analytics: React.FC = () => {
       saleOrders: 0
     }));
 
-    for (const s of sales) {
+    // Use filteredSales to avoid counting “empty” orders
+    for (const s of filteredSales) {
       const d = new Date(s.sale_date ?? s.created_at);
       if (Number.isNaN(d.getTime())) continue;
-      if (!(showAllTime || d.getFullYear() === selectedYear)) continue;
 
-      // count orders once per sale
       const mIdx = d.getMonth();
       rows[mIdx].saleOrders += 1;
 
-      // sum items
       for (const it of s.items) {
         const id = it.product.id;
         const q  = it.quantity;
@@ -268,7 +266,7 @@ const Analytics: React.FC = () => {
     }
 
     return rows;
-  }, [sales, avgCost, selectedYear, showAllTime]);
+  }, [filteredSales, avgCost]);
 
   if (loading) return <div className="p-6">Loading…</div>;
 
