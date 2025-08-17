@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Pencil, Plus, Trash2, ListChecks, Check, X } from "lucide-react";
+import { Pencil, Plus, Trash2, Check, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "@/api";
 import AddProductForm from "./AddProductForm";
@@ -71,12 +71,15 @@ export default function ProductList() {
   const [deleteGroupId, setDeleteGroupId] = useState<number | null>(null);
   const [deleteGroupName, setDeleteGroupName] = useState<string>("");
 
-  // NEW: Edit products within a group
+  // Edit products within a group
   const [editProductsGroupId, setEditProductsGroupId] = useState<number | null>(null);
   const [editProductsGroupName, setEditProductsGroupName] = useState<string>("");
   const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [membership, setMembership] = useState<Set<number>>(new Set());
   const [editProdSearch, setEditProdSearch] = useState("");
+
+  // Small “Edit” popover menu
+  const [menuGroupId, setMenuGroupId] = useState<number | null>(null);
 
   /* ------------ initial loads ------------ */
   useEffect(() => {
@@ -248,17 +251,17 @@ export default function ProductList() {
     }
   };
 
-  /* ---- NEW: edit products in a group ---- */
+  /* ---- Edit products in a group ---- */
   const openEditProducts = async (g: Collection) => {
     try {
-      // Load current group products
-      const detail = await api.get(`${COLLECTIONS_URL}/${g.id}`); // includes products[]
+      // Load current group products (expects products[] in the payload)
+      const detail = await api.get(`${COLLECTIONS_URL}/${g.id}`);
       const ids = new Set<number>((detail.data?.products || []).map((p: Product) => p.id));
       setMembership(ids);
       setEditProductsGroupId(g.id);
       setEditProductsGroupName(g.name);
 
-      // Load catalog (big limit to avoid pagination UI here)
+      // Load a big slice of catalog for selection
       const list = await api.get("/products/", {
         params: { page: 0, limit: 10000, sort_by: "name", order: "asc" },
       });
@@ -266,7 +269,6 @@ export default function ProductList() {
       setEditProdSearch("");
     } catch (err) {
       console.error(err);
-      // if something failed, close modal
       setEditProductsGroupId(null);
     }
   };
@@ -285,10 +287,7 @@ export default function ProductList() {
     });
   };
   const visibleChoices = useMemo(
-    () =>
-      allProducts.filter(p =>
-        p.name.toLowerCase().includes(editProdSearch.toLowerCase())
-      ),
+    () => allProducts.filter(p => p.name.toLowerCase().includes(editProdSearch.toLowerCase())),
     [allProducts, editProdSearch]
   );
   const selectAllVisible = () => {
@@ -325,8 +324,13 @@ export default function ProductList() {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6 p-6">
+      {/* click-away overlay for small menus */}
+      {menuGroupId !== null && (
+        <div className="fixed inset-0 z-10" onClick={() => setMenuGroupId(null)} />
+      )}
+
       {/* Sidebar */}
-      <aside className="bg-white rounded-lg shadow p-4 space-y-6">
+      <aside className="bg-white rounded-lg shadow p-4 space-y-6 relative">
         {/* Categories */}
         <div>
           <h2 className="text-lg font-semibold mb-2">Categories</h2>
@@ -357,7 +361,7 @@ export default function ProductList() {
           ) : (
             <ul className="space-y-1">
               {collections.map(g => (
-                <li key={g.id} className="flex items-center justify-between gap-2">
+                <li key={g.id} className="flex items-center justify-between gap-2 relative">
                   <button
                     onClick={() => {
                       setSelectedCollectionId(g.id);
@@ -373,22 +377,45 @@ export default function ProductList() {
                     )}
                   </button>
 
-                  {/* tiny action buttons */}
-                  <div className="flex items-center gap-1">
-                    <button
-                      title="Rename"
-                      onClick={() => openRenameGroup(g)}
-                      className="p-1 rounded hover:bg-gray-100"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                    <button
-                      title="Edit products"
-                      onClick={() => openEditProducts(g)}
-                      className="p-1 rounded hover:bg-gray-100"
-                    >
-                      <ListChecks className="w-4 h-4" />
-                    </button>
+                  <div className="flex items-center gap-1 z-20">
+                    {/* EDIT menu */}
+                    <div className="relative">
+                      <button
+                        title="Edit"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMenuGroupId(menuGroupId === g.id ? null : g.id);
+                        }}
+                        className="p-1 rounded hover:bg-gray-100"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+
+                      {menuGroupId === g.id && (
+                        <div className="absolute right-0 top-7 bg-white border rounded shadow-md text-sm py-1 min-w-[160px] z-50">
+                          <button
+                            className="w-full text-left px-3 py-2 hover:bg-gray-100"
+                            onClick={() => {
+                              setMenuGroupId(null);
+                              openRenameGroup(g);
+                            }}
+                          >
+                            Rename group
+                          </button>
+                          <button
+                            className="w-full text-left px-3 py-2 hover:bg-gray-100"
+                            onClick={() => {
+                              setMenuGroupId(null);
+                              openEditProducts(g);
+                            }}
+                          >
+                            Edit products
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* DELETE */}
                     <button
                       title="Delete group"
                       onClick={() => openDeleteGroup(g)}
@@ -610,7 +637,7 @@ export default function ProductList() {
         </Modal>
       )}
 
-      {/* NEW: Edit products in group modal */}
+      {/* Edit products in group modal */}
       {editProductsGroupId !== null && (
         <Modal onClose={closeEditProducts} title={`Edit Products — ${editProductsGroupName}`}>
           <div className="space-y-3">
@@ -682,9 +709,9 @@ const Modal = ({
   onClose: () => void;
   title: string;
 }) => (
-  <div className="fixed inset-0 z-50 flex items-center justify-center">
+  <div className="fixed inset-0 z-40 flex items-center justify-center">
     <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-    <div className="relative bg-white rounded-lg shadow-xl w-[92vw] max-w-2xl p-4">
+    <div className="relative bg-white rounded-lg shadow-xl w-[92vw] max-w-2xl p-4 z-50">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-lg font-semibold">{title}</h3>
         <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
