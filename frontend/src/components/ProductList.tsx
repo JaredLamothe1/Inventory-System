@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { Pencil, Check, X, Plus } from "lucide-react";
+import { Pencil, Check, X, Plus, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "@/api";
 import AddProductForm from "./AddProductForm";
@@ -53,15 +53,22 @@ export default function ProductList() {
   const [stockEditId, setStockEditId] = useState<number | null>(null);
   const [stockInput, setStockInput] = useState(0);
 
-  // Grouping flow (unchanged)
+  // Grouping flow (unchanged for creating new group)
   const [groupStep, setGroupStep] = useState<0 | 1>(0);
   const [groupNameDraft, setGroupNameDraft] = useState("");
   const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(new Set());
   const [groupMsg, setGroupMsg] = useState<string | null>(null);
   const [showNameModal, setShowNameModal] = useState(false);
 
-  // Add‑product modal
+  // Add-product modal
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // NEW: edit/delete group modals
+  const [editGroupId, setEditGroupId] = useState<number | null>(null);
+  const [editGroupName, setEditGroupName] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [deleteGroupId, setDeleteGroupId] = useState<number | null>(null);
+  const [deleteGroupName, setDeleteGroupName] = useState<string>("");
 
   // Fetch categories & collections once
   useEffect(() => {
@@ -140,7 +147,7 @@ export default function ProductList() {
     return "";
   };
 
-  // Group wizard handlers (unchanged)...
+  // Group wizard handlers (create new)
   const startGroupWizard = () => {
     setGroupNameDraft("");
     setSelectedProductIds(new Set());
@@ -186,6 +193,58 @@ export default function ProductList() {
     }
   };
 
+  /* ---------- NEW: rename group ---------- */
+  const openRenameGroup = (g: Collection) => {
+    setEditGroupId(g.id);
+    setEditGroupName(g.name);
+    setEditError(null);
+  };
+  const closeRenameGroup = () => {
+    setEditGroupId(null);
+    setEditGroupName("");
+    setEditError(null);
+  };
+  const submitRenameGroup = async () => {
+    if (!editGroupId) return;
+    if (!editGroupName.trim()) {
+      setEditError("Name is required.");
+      return;
+    }
+    try {
+      const res = await api.patch(`${COLLECTIONS_URL}/${editGroupId}`, { name: editGroupName.trim() });
+      setCollections(cs => cs.map(c => (c.id === editGroupId ? { ...c, name: res.data.name } : c)));
+      // If the currently selected group is the one renamed, keep selection
+      closeRenameGroup();
+    } catch (err: any) {
+      console.error(err);
+      setEditError(err.response?.data?.detail ?? "Failed to rename group.");
+    }
+  };
+
+  /* ---------- NEW: delete group ---------- */
+  const openDeleteGroup = (g: Collection) => {
+    setDeleteGroupId(g.id);
+    setDeleteGroupName(g.name);
+  };
+  const closeDeleteGroup = () => {
+    setDeleteGroupId(null);
+    setDeleteGroupName("");
+  };
+  const doDeleteGroup = async () => {
+    if (!deleteGroupId) return;
+    try {
+      await api.delete(`${COLLECTIONS_URL}/${deleteGroupId}`);
+      setCollections(cs => cs.filter(c => c.id !== deleteGroupId));
+      if (selectedCollectionId === deleteGroupId) {
+        setSelectedCollectionId(null);
+      }
+      closeDeleteGroup();
+    } catch (err) {
+      console.error(err);
+      // keep dialog open; user can retry
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6 p-6">
       {/* Sidebar */}
@@ -202,6 +261,7 @@ export default function ProductList() {
             }}
           />
         </div>
+
         {/* Groups */}
         <div>
           <div className="flex items-center justify-between mb-2">
@@ -213,32 +273,59 @@ export default function ProductList() {
               <Plus className="w-3 h-3" /> New
             </button>
           </div>
+
           {collections.length === 0 ? (
             <p className="text-xs text-gray-500">No groups yet.</p>
           ) : (
             <ul className="space-y-1">
-              {collections.map(g => (
-                <li key={g.id}>
-                  <button
-                    onClick={() => {
-                      setSelectedCollectionId(g.id);
-                      setSelectedCatId(null);
-                    }}
-                    className={`w-full text-left text-sm px-2 py-1 rounded ${
-                      selectedCollectionId === g.id
-                        ? "bg-blue-100 text-blue-700"
-                        : "hover:bg-gray-100"
-                    }`}
-                  >
-                    {g.name}
-                    {typeof g.product_count === "number" && (
-                      <span className="ml-2 text-[10px] text-gray-500">
-                        ({g.product_count})
-                      </span>
-                    )}
-                  </button>
-                </li>
-              ))}
+              {collections.map(g => {
+                const isSelected = selectedCollectionId === g.id;
+                return (
+                  <li key={g.id}>
+                    <div className={`flex items-center justify-between rounded ${isSelected ? "bg-blue-100 text-blue-700" : "hover:bg-gray-100"}`}>
+                      <button
+                        onClick={() => {
+                          setSelectedCollectionId(g.id);
+                          setSelectedCatId(null);
+                        }}
+                        className="flex-1 text-left text-sm px-2 py-1 truncate"
+                        title={g.name}
+                      >
+                        {g.name}
+                        {typeof g.product_count === "number" && (
+                          <span className="ml-2 text-[10px] text-gray-500">
+                            ({g.product_count})
+                          </span>
+                        )}
+                      </button>
+
+                      {/* NEW: quick actions */}
+                      <div className="flex items-center gap-1 pr-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openRenameGroup(g);
+                          }}
+                          className="p-1 rounded hover:bg-gray-200"
+                          title="Rename"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openDeleteGroup(g);
+                          }}
+                          className="p-1 rounded hover:bg-gray-200"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
@@ -440,12 +527,11 @@ export default function ProductList() {
                         {/* Edit button */}
                         <td className="py-4 px-6 text-right text-sm">
                           <button
-                                    onClick={() => navigate(`/products/${p.id}`)}
-                                    className="text-blue-600 hover:underline"
-                                  >
-                                    Edit
-                                  </button>
-
+                            onClick={() => navigate(`/products/${p.id}`)}
+                            className="text-blue-600 hover:underline"
+                          >
+                            Edit
+                          </button>
                         </td>
                       </tr>
                     );
@@ -484,6 +570,7 @@ export default function ProductList() {
           <AddProductForm closeForm={() => setIsModalOpen(false)} catTree={catTree} />
         </Modal>
       )}
+
       {showNameModal && (
         <Modal onClose={cancelGroupWizard} title="New Group">
           <form onSubmit={onNameSubmit} className="space-y-4 text-sm">
@@ -512,6 +599,55 @@ export default function ProductList() {
           </form>
         </Modal>
       )}
+
+      {/* NEW: Rename group modal */}
+      {editGroupId !== null && (
+        <Modal onClose={closeRenameGroup} title="Rename Group">
+          <div className="space-y-4 text-sm">
+            {editError && <div className="text-red-600 text-xs">{editError}</div>}
+            <div>
+              <label className="block mb-1 font-medium">New name</label>
+              <input
+                value={editGroupName}
+                onChange={e => setEditGroupName(e.target.value)}
+                className="w-full border rounded p-2"
+                placeholder="Enter new group name"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={closeRenameGroup} className="px-4 py-2 border rounded text-sm">
+                Cancel
+              </button>
+              <button onClick={submitRenameGroup} className="px-4 py-2 bg-blue-600 text-white rounded text-sm">
+                Save
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* NEW: Delete group confirm */}
+      {deleteGroupId !== null && (
+        <Modal onClose={closeDeleteGroup} title="Delete Group">
+          <div className="space-y-4 text-sm">
+            <p>
+              Are you sure you want to delete <strong>{deleteGroupName}</strong>?
+              This will remove the group but won’t delete any products.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={closeDeleteGroup} className="px-4 py-2 border rounded text-sm">
+                Cancel
+              </button>
+              <button
+                onClick={doDeleteGroup}
+                className="px-4 py-2 bg-red-600 text-white rounded text-sm"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -536,20 +672,3 @@ const Modal = ({
     </div>
   </div>
 );
-
-const Badge = ({
-  text,
-  color,
-  subtle,
-}: {
-  text: string;
-  color: "red" | "yellow" | "green";
-  subtle?: boolean;
-}) => {
-  const map = {
-    red: subtle ? "bg-red-100 text-red-700" : "bg-red-200 text-red-800",
-    yellow: subtle ? "bg-yellow-100 text-yellow-800" : "bg-yellow-200 text-yellow-900",
-    green: subtle ? "bg-green-100 text-green-700" : "bg-green-200 text-green-800",
-  }[color];
-  return <span className={`ml-2 px-2 py-0.5 text-xs font-semibold rounded-full ${map}`}>{text}</span>;
-};

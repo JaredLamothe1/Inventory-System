@@ -1,13 +1,39 @@
 # seed_categories.py
 import os
+import sys
+import json
 import requests
 
-API_URL = os.getenv("API_URL", "http://localhost:8000/categories/")
-TOKEN   = os.getenv("API_TOKEN", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImV4cCI6MTc1MzMwNTM5OH0.c_iZ5rGOr1MYhnA72G8GNvB8cXgjGnVy7nTNjPKIJOY")  # put your JWT here or export API_TOKEN
+API_BASE = os.getenv("API_BASE", "http://localhost:8000").rstrip("/")
+LOGIN_URL = f"{API_BASE}/login"
+CATEGORIES_URL = f"{API_BASE}/categories/"
 
-headers = {"Content-Type": "application/json"}
-if TOKEN:
-    headers["Authorization"] = f"Bearer {TOKEN}"
+API_TOKEN = os.getenv("API_TOKEN")  # preferred: supply a token
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "changeme")
+
+def get_token_if_needed() -> str:
+    """
+    Return a JWT to authenticate requests.
+    If API_TOKEN is already set, use it. Otherwise, login.
+    """
+    if API_TOKEN:
+        return API_TOKEN
+    try:
+        resp = requests.post(
+            LOGIN_URL,
+            data={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            print(f"Login failed: {resp.status_code} - {resp.text}")
+            sys.exit(1)
+        data = resp.json()
+        return data["access_token"]
+    except Exception as e:
+        print(f"Login error: {e}")
+        sys.exit(1)
 
 # ----- EDIT THIS LIST AS NEEDED -----
 raw_categories = [
@@ -80,11 +106,13 @@ raw_categories = [
 ]
 
 def normalize(cat: dict) -> dict:
-    """Convert legacy keys -> current backend schema."""
+    """
+    Convert legacy keys -> backend schema:
+      - price_tiers -> purchase_tiers[{threshold, price}]
+      - base_purchase_price -> first tier price if missing
+    """
     tiers_in = cat.get("price_tiers", [])
-    purchase_tiers = [
-        {"threshold": t["min_qty"], "price": t["price"]} for t in tiers_in
-    ]
+    purchase_tiers = [{"threshold": t["min_qty"], "price": t["price"]} for t in tiers_in]
 
     base_purchase_price = cat.get("base_purchase_price")
     if base_purchase_price is None and purchase_tiers:
@@ -99,13 +127,28 @@ def normalize(cat: dict) -> dict:
     }
 
 def main():
+    token = get_token_if_needed()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
     for cat in raw_categories:
         payload = normalize(cat)
         try:
-            resp = requests.post(API_URL, json=payload, headers=headers, timeout=10)
-            print(f"{payload['name']}: {resp.status_code} - {resp.text}")
+            resp = requests.post(CATEGORIES_URL, json=payload, headers=headers, timeout=15)
+            if resp.headers.get("content-type", "").startswith("application/json"):
+                body = resp.json()
+            else:
+                body = resp.text
+
+            if resp.status_code in (200, 201):
+                print(f"[OK] {payload['name']}")
+            else:
+                print(f"[{resp.status_code}] {payload['name']} -> {body}")
         except Exception as e:
-            print(f"{payload['name']}: ERROR - {e}")
+            print(f"[ERROR] {payload['name']}: {e}")
 
 if __name__ == "__main__":
     main()
