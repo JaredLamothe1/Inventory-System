@@ -121,23 +121,6 @@ export default function ProductList() {
       .catch(console.error);
   };
 
-  // Stock badge coloring
-  const getStockBadge = (p: Product) => {
-    const t = p.reorder_threshold ?? 0;
-    const qty = p.quantity_in_stock;
-    const cls =
-      qty === 0
-        ? "bg-red-100 text-red-800"
-        : qty < t
-        ? "bg-yellow-100 text-yellow-800"
-        : "bg-green-100 text-green-800";
-    return (
-      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${cls}`}>
-        {qty}
-      </span>
-    );
-  };
-
   // Row background based on stock
   const getRowBg = (p: Product) => {
     const t = p.reorder_threshold ?? 0;
@@ -213,7 +196,6 @@ export default function ProductList() {
     try {
       const res = await api.patch(`${COLLECTIONS_URL}/${editGroupId}`, { name: editGroupName.trim() });
       setCollections(cs => cs.map(c => (c.id === editGroupId ? { ...c, name: res.data.name } : c)));
-      // If the currently selected group is the one renamed, keep selection
       closeRenameGroup();
     } catch (err: any) {
       console.error(err);
@@ -241,7 +223,6 @@ export default function ProductList() {
       closeDeleteGroup();
     } catch (err) {
       console.error(err);
-      // keep dialog open; user can retry
     }
   };
 
