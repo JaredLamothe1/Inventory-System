@@ -1,7 +1,9 @@
 # app/routes/sale.py
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
-from typing import List
+
 from app.database import SessionLocal
 from app.models.sale import Sale, SaleItem
 from app.models.product import Product
@@ -12,6 +14,7 @@ from app.models.user import User
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 
+
 def get_db():
     db = SessionLocal()
     try:
@@ -19,6 +22,48 @@ def get_db():
     finally:
         db.close()
 
+
+# ----------------------------
+# Helpers
+# ----------------------------
+def _get_sale(db: Session, sale_id: int, user_id: int) -> Sale | None:
+    return (
+        db.query(Sale)
+        .options(joinedload(Sale.items))
+        .filter(Sale.id == sale_id, Sale.user_id == user_id)
+        .first()
+    )
+
+
+def _get_product(db: Session, product_id: int, user_id: int) -> Product | None:
+    return (
+        db.query(Product)
+        .filter(Product.id == product_id, Product.user_id == user_id)
+        .first()
+    )
+
+
+def _revert_inventory_for_items(
+    db: Session, items: List[SaleItem], user_id: int, note_prefix: str
+) -> None:
+    """Return inventory for the provided items (used before edit/delete)."""
+    for it in list(items):
+        product = _get_product(db, it.product_id, user_id)
+        if product:
+            product.quantity_in_stock = (product.quantity_in_stock or 0) + it.quantity
+            db.add(
+                InventoryLog(
+                    product_id=product.id,
+                    change_type="revert_sale",
+                    change_amount=it.quantity,
+                    note=f"{note_prefix} {it.sale_id}",
+                )
+            )
+
+
+# ----------------------------
+# Create
+# ----------------------------
 @router.post("/", response_model=SaleOut)
 def create_sale(
     sale_data: SaleCreate,
@@ -38,14 +83,11 @@ def create_sale(
         db.add(new_sale)
 
         for item in sale_data.items:
-            product = (
-                db.query(Product)
-                .filter(Product.id == item.product_id, Product.user_id == current_user.id)
-                .first()
-            )
+            product = _get_product(db, item.product_id, current_user.id)
             if not product:
                 raise HTTPException(status_code=404, detail=f"Product {item.product_id} not found")
 
+            # Allow oversell; just log it (inventory can go negative)
             if (product.quantity_in_stock or 0) < item.quantity:
                 print(
                     f"⚠️ Oversell: '{product.name}' had {product.quantity_in_stock} in stock, "
@@ -78,6 +120,10 @@ def create_sale(
         db.rollback()
         raise
 
+
+# ----------------------------
+# Update
+# ----------------------------
 @router.put("/{sale_id}", response_model=SaleOut)
 def update_sale(
     sale_id: int,
@@ -86,51 +132,27 @@ def update_sale(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        sale = (
-            db.query(Sale)
-            .options(joinedload(Sale.items))
-            .filter(Sale.id == sale_id, Sale.user_id == current_user.id)
-            .first()
-        )
+        sale = _get_sale(db, sale_id, current_user.id)
         if not sale:
             raise HTTPException(status_code=404, detail="Sale not found")
 
-        # revert inventory from existing items
-        for item in sale.items:
-            product = (
-                db.query(Product)
-                .filter(Product.id == item.product_id, Product.user_id == current_user.id)
-                .first()
-            )
-            if product:
-                product.quantity_in_stock = (product.quantity_in_stock or 0) + item.quantity
-                db.add(
-                    InventoryLog(
-                        product_id=product.id,
-                        change_type="revert_sale_edit",
-                        change_amount=item.quantity,
-                        note=f"Reverted previous quantity for sale {sale.id}",
-                    )
-                )
+        # 1) Revert inventory from existing items
+        _revert_inventory_for_items(db, sale.items, current_user.id, "Reverted previous quantity for sale")
 
-        # remove existing children with bulk delete,
-        # THEN clear the in-session relationship to avoid stale sync
-        db.query(SaleItem).filter(SaleItem.sale_id == sale_id).delete(synchronize_session=False)
-        sale.items = []          # clear in-session collection
-        db.flush()               # ensure state is consistent before adding new rows
+        # 2) ORM-delete existing children (avoid bulk delete -> StaleDataError)
+        for item in list(sale.items):
+            db.delete(item)
 
-        # header fields
+        # (Optional) flush not required here; commit later handles it
+
+        # 3) Update header
         sale.sale_date = updated_data.sale_date
         sale.notes = updated_data.notes
         sale.sale_type = updated_data.sale_type or sale.sale_type
 
-        # add new items and apply inventory changes
+        # 4) Add new items & apply inventory deltas
         for upd in updated_data.items:
-            product = (
-                db.query(Product)
-                .filter(Product.id == upd.product_id, Product.user_id == current_user.id)
-                .first()
-            )
+            product = _get_product(db, upd.product_id, current_user.id)
             if not product:
                 raise HTTPException(status_code=404, detail=f"Product {upd.product_id} not found")
 
@@ -148,6 +170,7 @@ def update_sale(
                     unit_price=upd.unit_price,
                 )
             )
+
             product.quantity_in_stock = (product.quantity_in_stock or 0) - upd.quantity
             db.add(
                 InventoryLog(
@@ -165,6 +188,10 @@ def update_sale(
         db.rollback()
         raise
 
+
+# ----------------------------
+# Read
+# ----------------------------
 @router.get("/", response_model=List[SaleOut])
 def get_all_sales(
     db: Session = Depends(get_db),
@@ -178,9 +205,10 @@ def get_all_sales(
             .joinedload(Product.category)
         )
         .filter(Sale.user_id == current_user.id)
-        .filter(Sale.items.any())
+        .filter(Sale.items.any())  # only show sales that actually have items
         .all()
     )
+
 
 @router.get("/{sale_id}", response_model=SaleOut)
 def get_sale_by_id(
@@ -202,6 +230,10 @@ def get_sale_by_id(
         raise HTTPException(status_code=404, detail="Sale not found")
     return sale
 
+
+# ----------------------------
+# Delete
+# ----------------------------
 @router.delete("/{sale_id}")
 def delete_sale(
     sale_id: int,
@@ -209,39 +241,20 @@ def delete_sale(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        sale = (
-            db.query(Sale)
-            .options(joinedload(Sale.items))
-            .filter(Sale.id == sale_id, Sale.user_id == current_user.id)
-            .first()
-        )
+        sale = _get_sale(db, sale_id, current_user.id)
         if not sale:
             raise HTTPException(status_code=404, detail="Sale not found")
 
-        # return inventory
+        # 1) Return inventory for existing items
+        _revert_inventory_for_items(db, sale.items, current_user.id, "Sale deleted")
+
+        # 2) ORM-delete children (NO bulk delete)
         for item in list(sale.items):
-            product = (
-                db.query(Product)
-                .filter(Product.id == item.product_id, Product.user_id == current_user.id)
-                .first()
-            )
-            if product:
-                product.quantity_in_stock = (product.quantity_in_stock or 0) + item.quantity
-                db.add(
-                    InventoryLog(
-                        product_id=product.id,
-                        change_type="revert_sale",
-                        change_amount=item.quantity,
-                        note=f"Sale {sale.id} deleted",
-                    )
-                )
+            db.delete(item)
 
-        # bulk delete children, clear in-session relation, flush, then delete parent
-        db.query(SaleItem).filter(SaleItem.sale_id == sale_id).delete(synchronize_session=False)
-        sale.items = []
-        db.flush()
-
+        # 3) Delete parent
         db.delete(sale)
+
         db.commit()
         return {"message": f"Sale {sale_id} deleted and inventory reverted"}
     except Exception:
