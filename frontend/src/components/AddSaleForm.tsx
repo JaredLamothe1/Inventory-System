@@ -5,7 +5,8 @@ interface Product {
   id: number;
   name?: string | null;
   category_id: number | null;
-  resolved_price?: number | null; // <-- use API-computed price
+  // resolved_price can come back as a string (Decimal) from the API
+  resolved_price?: number | string | null;
 }
 
 interface Category {
@@ -24,8 +25,16 @@ interface SaleItem {
 interface ExistingSaleItem {
   product_id: number;
   quantity: number;
-  unit_price: number;
+  unit_price: number | string; // be tolerant when loading existing sales
 }
+
+const toNum = (v: unknown): number => {
+  const n =
+    typeof v === "string" ? parseFloat(v) :
+    typeof v === "number" ? v :
+    Number(v as any);
+  return Number.isFinite(n) ? n : 0;
+};
 
 const AddSaleForm = () => {
   const { saleId } = useParams();
@@ -50,13 +59,15 @@ const AddSaleForm = () => {
     };
   };
 
+  // ---------- Load products & categories ----------
   useEffect(() => {
     const fetchAll = async () => {
       try {
         const [productRes, categoryRes] = await Promise.all([
-          fetch(`${import.meta.env.VITE_API_URL}/products/?limit=1000&page=0&sort_by=name&order=asc`, {
-            headers: authHeaders(),
-          }),
+          fetch(
+            `${import.meta.env.VITE_API_URL}/products/?limit=1000&page=0&sort_by=name&order=asc`,
+            { headers: authHeaders() }
+          ),
           fetch(`${import.meta.env.VITE_API_URL}/categories/`, {
             headers: authHeaders(),
           }),
@@ -78,12 +89,14 @@ const AddSaleForm = () => {
     fetchAll();
   }, []);
 
+  // ---------- Default date for new sale ----------
   useEffect(() => {
     if (!isEditing) {
       setSaleDate(new Date().toISOString().split("T")[0]);
     }
   }, [isEditing]);
 
+  // ---------- Load existing sale when editing ----------
   useEffect(() => {
     if (!isEditing || !saleId) return;
 
@@ -97,7 +110,9 @@ const AddSaleForm = () => {
         const data = await res.json();
 
         const rawDate: string | null = data?.sale_date ?? null;
-        const normalized = rawDate ? String(rawDate).split("T")[0] : new Date().toISOString().split("T")[0];
+        const normalized = rawDate
+          ? String(rawDate).split("T")[0]
+          : new Date().toISOString().split("T")[0];
         setSaleDate(normalized);
 
         setNotes(data?.notes ?? "");
@@ -107,8 +122,8 @@ const AddSaleForm = () => {
           const product = products.find((p) => p.id === item.product_id);
           return {
             product_id: item.product_id,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
+            quantity: toNum(item.quantity),
+            unit_price: toNum(item.unit_price),
             name: (product?.name ?? "Unnamed Product").toString(),
           };
         });
@@ -121,20 +136,24 @@ const AddSaleForm = () => {
     fetchSale();
   }, [isEditing, saleId, products]);
 
+  // ---------- Helpers ----------
   const getSalePrice = (categoryId: number | null): number => {
     if (categoryId == null) return 0;
     const category = categories.find((cat) => cat.id === categoryId);
-    const price = category?.default_sale_price;
-    return typeof price === "number" && !Number.isNaN(price) ? price : 0;
+    return toNum(category?.default_sale_price ?? 0);
   };
 
+  const displayPriceFor = (p: Product) => {
+    const fallback = getSalePrice(p.category_id);
+    return p.resolved_price != null ? toNum(p.resolved_price) : fallback;
+  };
+
+  // ---------- UI handlers ----------
   const handleAddProduct = (product: Product) => {
     if (!product?.id) return;
     if (items.find((i) => i.product_id === product.id)) return;
 
-    // Prefer resolved_price from /products; else fall back to category default.
-    const fallback = getSalePrice(product.category_id);
-    const price = typeof product.resolved_price === "number" ? product.resolved_price : fallback;
+    const price = displayPriceFor(product);
 
     setItems((prev) => [
       ...prev,
@@ -142,7 +161,7 @@ const AddSaleForm = () => {
         product_id: product.id,
         name: (product.name ?? "Unnamed Product").toString(),
         quantity: 1,
-        unit_price: Math.max(0, Number(price || 0)),
+        unit_price: Math.max(0, price),
       },
     ]);
   };
@@ -151,26 +170,19 @@ const AddSaleForm = () => {
     const qty = Number.isFinite(qtyInput) ? qtyInput : 0;
     setItems((prev) =>
       prev.map((item) =>
-        item.product_id === productId ? { ...item, quantity: Math.max(0, qty) } : item
+        item.product_id === productId
+          ? { ...item, quantity: Math.max(0, qty) }
+          : item
       )
     );
   };
 
   const handlePriceChange = (productId: number, priceInput: string) => {
-    let val = priceInput.trim();
-    if (val === "") {
-      setItems((prev) =>
-        prev.map((item) =>
-          item.product_id === productId ? { ...item, unit_price: 0 } : item
-        )
-      );
-      return;
-    }
-    const num = Number(val);
+    const num = toNum(priceInput);
     setItems((prev) =>
       prev.map((item) =>
         item.product_id === productId
-          ? { ...item, unit_price: Number.isFinite(num) ? Math.max(0, parseFloat(num.toFixed(2))) : item.unit_price }
+          ? { ...item, unit_price: Math.max(0, parseFloat(num.toFixed(2))) }
           : item
       )
     );
@@ -192,8 +204,8 @@ const AddSaleForm = () => {
       sale_type: saleType,
       items: items.map(({ product_id, quantity, unit_price }) => ({
         product_id,
-        quantity,
-        unit_price: Number.isFinite(unit_price) ? Number(unit_price) : 0,
+        quantity: toNum(quantity),
+        unit_price: toNum(unit_price),
       })),
     };
 
@@ -221,6 +233,7 @@ const AddSaleForm = () => {
     }
   };
 
+  // ---------- Filtering (defensive) ----------
   const filteredProducts = useMemo(() => {
     const term = (searchTerm || "").toLowerCase();
     return products.filter((p) => {
@@ -234,7 +247,11 @@ const AddSaleForm = () => {
   }, [products, searchTerm, selectedCategoryId]);
 
   const total = useMemo(
-    () => items.reduce((sum, i) => sum + Number(i.quantity || 0) * Number(i.unit_price || 0), 0),
+    () =>
+      items.reduce(
+        (sum, i) => sum + toNum(i.quantity) * toNum(i.unit_price),
+        0
+      ),
     [items]
   );
 
@@ -244,11 +261,6 @@ const AddSaleForm = () => {
     if (!Number.isFinite(idNum)) return null;
     return getSalePrice(idNum);
   }, [selectedCategoryId, categories]);
-
-  const displayPriceFor = (p: Product) => {
-    const fallback = getSalePrice(p.category_id);
-    return typeof p.resolved_price === "number" ? p.resolved_price : fallback;
-  };
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
@@ -335,7 +347,7 @@ const AddSaleForm = () => {
           <p className="text-sm text-gray-600">
             Sale price for this category:{" "}
             <span className="font-semibold text-blue-700">
-              ${Number(selectedCategoryPrice).toFixed(2)}
+              ${toNum(selectedCategoryPrice).toFixed(2)}
             </span>
           </p>
         )}
@@ -354,7 +366,7 @@ const AddSaleForm = () => {
                 {(product.name ?? "Unnamed Product").toString()}
               </div>
               <div className="text-xs text-gray-600 mt-1">
-                ${Number(displayPriceFor(product)).toFixed(2)}
+                ${toNum(displayPriceFor(product)).toFixed(2)}
               </div>
               <div className="text-xs text-gray-400 italic mt-1">Click to add</div>
             </button>
@@ -391,8 +403,10 @@ const AddSaleForm = () => {
                     type="number"
                     min={0}
                     step={1}
-                    value={item.quantity}
-                    onChange={(e) => handleQuantityChange(item.product_id, Number(e.target.value))}
+                    value={toNum(item.quantity)}
+                    onChange={(e) =>
+                      handleQuantityChange(item.product_id, toNum(e.target.value))
+                    }
                     className="border px-2 py-1 w-24 rounded-md"
                   />
                 </div>
@@ -403,14 +417,15 @@ const AddSaleForm = () => {
                     type="number"
                     min={0}
                     step="0.01"
-                    value={Number(item.unit_price ?? 0).toFixed(2)}
+                    value={toNum(item.unit_price).toFixed(2)}
                     onChange={(e) => handlePriceChange(item.product_id, e.target.value)}
                     className="border px-2 py-1 w-28 rounded-md"
                   />
                 </div>
 
                 <div className="ml-auto sm:ml-0 text-right sm:text-left font-medium text-blue-700">
-                  Line Total: ${Number((item.unit_price || 0) * (item.quantity || 0)).toFixed(2)}
+                  Line Total: $
+                  {(toNum(item.unit_price) * toNum(item.quantity)).toFixed(2)}
                 </div>
               </div>
             </div>
@@ -423,7 +438,7 @@ const AddSaleForm = () => {
       {/* Total & Actions */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6">
         <div className="text-2xl font-bold text-gray-800">
-          Total: <span className="text-blue-700">${Number(total).toFixed(2)}</span>
+          Total: <span className="text-blue-700">${toNum(total).toFixed(2)}</span>
         </div>
         <div className="flex gap-3">
           <button
