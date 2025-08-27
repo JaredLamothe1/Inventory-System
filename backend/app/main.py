@@ -22,12 +22,17 @@ from app.database import Base, engine
 
 
 app = FastAPI()
+frontend_url = (settings.FRONTEND_URL or "").strip()
+extra = (os.getenv("CORS_ORIGINS", "") or "").strip()
+allow_origins = [o.strip() for o in [frontend_url, *extra.split(",")] if o.strip()]
 
+allow_origin_regex = r"^https://.*\.vercel\.app$"
 # CORS (tweak origins for prod)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=allow_origins or ["http://localhost:5173"],
+    allow_origin_regex=allow_origin_regex,
+    allow_credentials=False,   # we use Bearer tokens, not cookies
     allow_methods=["*"],
     allow_headers=["*"],
 )
