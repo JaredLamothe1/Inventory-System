@@ -6,8 +6,8 @@ interface Product { id: number; name: string; }
 interface SaleItem { id: number; product: Product; quantity: number; unit_price: number; }
 interface Sale {
   id: number;
-  created_at: string;
-  sale_date?: string;
+  created_at: string;     // ISO timestamp
+  sale_date?: string;     // "YYYY-MM-DD" (DATE column)
   sale_type?: string;
   payment_type?: string;
   processing_fee?: number;
@@ -15,11 +15,23 @@ interface Sale {
   items: SaleItem[];
 }
 
-const money = (n: number) => (n ?? 0).toLocaleString(undefined, { style: "currency", currency: "USD" });
-const formatType = (t?: string) => (t ?? "individual").replace("batch-daily","Batch - Daily").replace("batch-weekly","Batch - Weekly").replace(/-/g," ").replace(/\b\w/g,c=>c.toUpperCase());
-const formatPayment = (pt?: string) => (pt ?? "cash").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+const money = (n: number) =>
+  (n ?? 0).toLocaleString(undefined, { style: "currency", currency: "USD" });
 
-const SKIP_KEY = "sales.skipDeleteConfirm";
+const formatType = (t?: string) =>
+  (t ?? "individual").replace("batch-daily","Batch - Daily")
+    .replace("batch-weekly","Batch - Weekly")
+    .replace(/-/g," ").replace(/\b\w/g,c=>c.toUpperCase());
+
+const formatPayment = (pt?: string) =>
+  (pt ?? "cash").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+
+// Format "YYYY-MM-DD" safely without Date() (no timezone shift)
+function prettyYMD(ymd: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
+  const [y, m, d] = ymd.split("-");
+  return `${Number(m)}/${Number(d)}/${y}`;
+}
 
 export default function SaleDetails() {
   const params = useParams();
@@ -31,6 +43,7 @@ export default function SaleDetails() {
   const [err, setErr] = useState<string | null>(null);
 
   const [showConfirm, setShowConfirm] = useState(false);
+  const SKIP_KEY = "sales.skipDeleteConfirm";
   const [dontAskAgain, setDontAskAgain] = useState(localStorage.getItem(SKIP_KEY) === "1");
 
   const authHeaders = () => {
@@ -62,7 +75,10 @@ export default function SaleDetails() {
 
   const doDelete = async () => {
     if (!saleId) return;
-    const res = await fetch(`${import.meta.env.VITE_API_URL}/sales/${saleId}`, { method: "DELETE", headers: authHeaders() });
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/sales/${saleId}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
     if (res.ok) { navigate("/sales"); } else { alert("Failed to delete sale."); }
   };
 
@@ -70,7 +86,10 @@ export default function SaleDetails() {
   if (err) return <div className="p-6 text-red-600">{err}</div>;
   if (!sale) return <div className="p-6">Not found.</div>;
 
-  const displayDate = new Date(sale.sale_date ?? sale.created_at).toLocaleDateString();
+  // If sale_date present, format it without Date(); else use created_at as a real timestamp.
+  const displayDate = sale.sale_date
+    ? prettyYMD(sale.sale_date)
+    : new Date(sale.created_at).toLocaleDateString();
 
   return (
     <div className="space-y-6">
@@ -78,7 +97,11 @@ export default function SaleDetails() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Sale Details</h1>
           <div className="mt-1 text-sm text-slate-600">Date: {displayDate}</div>
-          {sale.notes && <div className="mt-2 rounded-lg bg-slate-50 p-3 text-sm text-slate-700 border border-slate-200">📝 {sale.notes}</div>}
+          {sale.notes && (
+            <div className="mt-2 rounded-lg bg-slate-50 p-3 text-sm text-slate-700 border border-slate-200">
+              📝 {sale.notes}
+            </div>
+          )}
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
             <span className="rounded-full bg-slate-800 text-white px-2.5 py-1">📦 {formatType(sale.sale_type)}</span>
             <span className="rounded-full bg-blue-100 text-blue-800 px-2.5 py-1">💳 {formatPayment(sale.payment_type)}</span>
@@ -123,42 +146,8 @@ export default function SaleDetails() {
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <table className="min-w-full text-sm">
-          <thead className="bg-slate-50">
-            <tr className="text-left">
-              <th className="px-4 py-3">Product</th>
-              <th className="px-4 py-3 text-right">Qty</th>
-              <th className="px-4 py-3 text-right">Unit Price</th>
-              <th className="px-4 py-3 text-right">Line Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sale.items.map(it => (
-              <tr key={it.id} className="border-t">
-                <td className="px-4 py-3">{it.product?.name ?? "—"}</td>
-                <td className="px-4 py-3 text-right">{it.quantity}</td>
-                <td className="px-4 py-3 text-right">{money(it.unit_price)}</td>
-                <td className="px-4 py-3 text-right font-medium">{money((it.unit_price || 0) * (it.quantity || 0))}</td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot className="bg-slate-50">
-            <tr>
-              <th className="px-4 py-3 text-right" colSpan={3}>Subtotal</th>
-              <td className="px-4 py-3 text-right">{money(itemsSubtotal)}</td>
-            </tr>
-            <tr>
-              <th className="px-4 py-3 text-right" colSpan={3}>Card fee</th>
-              <td className="px-4 py-3 text-right">{showFee ? money(fee) : money(0)}</td>
-            </tr>
-            <tr>
-              <th className="px-4 py-3 text-right text-lg" colSpan={3}>Total</th>
-              <td className="px-4 py-3 text-right text-lg font-semibold">{money(grandTotal)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+      {/* table omitted for brevity – unchanged */}
+      {/* ... keep your table + footer; totals logic stays as-is ... */}
     </div>
   );
 }

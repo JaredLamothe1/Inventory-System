@@ -3,185 +3,209 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "@/api";
 
-type POItem = { id: number; product_id: number; product_name: string; category_name?: string | null; quantity: number; unit_cost: number; };
-type PurchaseOrder = { id: number; created_at: string; shipping_cost: number; handling_cost: number; items: POItem[]; };
+type POItem = {
+  id: number;
+  product_id: number;
+  product_name?: string | null;
+  quantity: number;
+  unit_cost: number;
+};
+type PurchaseOrder = {
+  id: number;
+  created_at: string;
+  shipping_cost?: number | null;
+  handling_cost?: number | null;
+  items?: POItem[] | null;
+};
 type SortKey = "date" | "units" | "lines" | "grand_total";
 
-function apiUrl(path: string) {
-  const base = (api as any)?.defaults?.baseURL || (import.meta.env as any)?.VITE_API_URL || "";
-  const clean = String(base).replace(/\/+$/, "");
-  return clean ? `${clean}${path}` : path;
-}
 const money = (n: number) => (n ?? 0).toLocaleString(undefined, { style: "currency", currency: "USD" });
 const dateOnly = (iso: string) => new Date(iso).toISOString().slice(0, 10);
-const totals = (po: PurchaseOrder) => {
-  const itemsSubtotal = (po.items ?? []).reduce((a, it) => a + (it.quantity || 0) * (it.unit_cost || 0), 0) ?? 0;
-  const grand = itemsSubtotal + (po.shipping_cost ?? 0) + (po.handling_cost ?? 0);
-  const units = (po.items ?? []).reduce((a, it) => a + (it.quantity || 0), 0) ?? 0;
-  const lines = po.items?.length ?? 0;
-  return { itemsSubtotal, grand, units, lines };
-};
 
 export default function PurchaseOrdersPage() {
   const nav = useNavigate();
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+
+  const [search, setSearch] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("date");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
-  const ROWS_PER_PAGE = 25;
+  const perPage = 10;
 
   useEffect(() => {
     let alive = true;
     (async () => {
+      setLoading(true);
+      setErr(null);
       try {
-        setLoading(true); setErr(null);
-        const { data } = await api.get<PurchaseOrder[]>(apiUrl("/purchase_orders/"));
-        if (alive) setOrders(Array.isArray(data) ? data : []);
+        const { data } = await api.get<PurchaseOrder[]>("/purchase_orders/");
+        const arr = Array.isArray(data) ? data : [];
+        const sorted = arr.sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        if (alive) setOrders(sorted);
       } catch (e: any) {
-        const msg = e?.response?.data?.detail || e?.response?.data?.message || e?.message || "Failed to fetch purchase orders.";
-        if (alive) setErr(String(msg));
-      } finally { if (alive) setLoading(false); }
+        console.error("Failed to fetch /purchase_orders/", e);
+        if (alive) {
+          const msg = e?.response?.status
+            ? `Failed to load purchase orders (${e.response.status})`
+            : "Failed to load purchase orders. Please try again.";
+          setErr(msg);
+          setOrders([]);
+        }
+      } finally {
+        if (alive) setLoading(false);
+      }
     })();
     return () => { alive = false; };
   }, []);
 
   const filtered = useMemo(() => {
-    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    const start = fromDate ? new Date(fromDate + "T00:00:00") : null;
-    const end = toDate ? new Date(toDate + "T23:59:59") : null;
-    return orders.filter(po => {
-      const d = new Date(po.created_at);
-      if (start && d < start) return false;
-      if (end && d > end) return false;
-      if (words.length === 0) return true;
-      const hay = [
-        dateOnly(po.created_at),
-        String(po.id),
-        ...(po.items ?? []).map(it => it.product_name || ""),
-        ...(po.items ?? []).map(it => it.category_name || ""),
-      ].join(" ").toLowerCase();
-      return words.every(w => hay.includes(w));
+    const q = search.trim().toLowerCase();
+    return orders.filter((o) => {
+      const items = o.items ?? [];
+      const matchSearch =
+        items.some((i) => (i.product_name ?? "").toLowerCase().includes(q));
+      const iso = dateOnly(o.created_at);
+      const matchStart = startDate ? iso >= startDate : true;
+      const matchEnd = endDate ? iso <= endDate : true;
+      return matchSearch && matchStart && matchEnd;
     });
-  }, [orders, query, fromDate, toDate]);
+  }, [orders, search, startDate, endDate]);
+
+  const computed = useMemo(() => {
+    return filtered.map((o) => {
+      const items = o.items ?? [];
+      const lines = items.length;
+      const units = items.reduce((s, i) => s + (i.quantity || 0), 0);
+      const itemsTotal = items.reduce((s, i) => s + (i.quantity || 0) * (i.unit_cost || 0), 0);
+      const grand = itemsTotal + (o.shipping_cost ?? 0) + (o.handling_cost ?? 0);
+      return { ...o, lines, units, itemsTotal, grand };
+    });
+  }, [filtered]);
 
   const sorted = useMemo(() => {
-    const arr = [...filtered];
+    const arr = [...computed];
     arr.sort((a, b) => {
-      const ta = totals(a), tb = totals(b);
-      let cmp = 0;
       switch (sortKey) {
-        case "date": cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime(); break;
-        case "units": cmp = ta.units - tb.units; break;
-        case "lines": cmp = ta.lines - tb.lines; break;
-        case "grand_total": cmp = ta.grand - tb.grand; break;
+        case "lines": return b.lines - a.lines;
+        case "units": return b.units - a.units;
+        case "grand_total": return b.grand - a.grand;
+        default: return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       }
-      return sortDir === "asc" ? cmp : -cmp;
     });
     return arr;
-  }, [filtered, sortKey, sortDir]);
+  }, [computed, sortKey]);
 
-  const total = sorted.length;
-  const totalPages = Math.max(1, Math.ceil(total / ROWS_PER_PAGE));
-  const pageClamped = Math.min(Math.max(1, page), totalPages);
-  useEffect(() => { if (page !== pageClamped) setPage(pageClamped); }, [totalPages]);
-  const paged = useMemo(() => sorted.slice((pageClamped - 1) * ROWS_PER_PAGE, pageClamped * ROWS_PER_PAGE), [sorted, pageClamped]);
-
-  const toggleSort = (k: SortKey) => { if (k === sortKey) setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortKey(k); setSortDir("desc"); } setPage(1); };
-  const clearFilters = () => { setQuery(""); setFromDate(""); setToDate(""); setPage(1); };
+  const totalPages = Math.ceil(sorted.length / perPage) || 1;
+  const pageSafe = Math.min(page, totalPages);
+  const paged = sorted.slice((pageSafe - 1) * perPage, pageSafe * perPage);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Purchase Orders</h1>
-          <p className="text-sm text-slate-500">Filter by text or date. Sort by date, units, lines, or grand total.</p>
+          <p className="text-sm text-slate-500">All orders on your account.</p>
         </div>
-        <button onClick={() => nav("/purchase-orders/new")} className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700">+ New PO</button>
+        <button
+          onClick={() => nav("/purchase_orders/new")}
+          className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+        >
+          + New Purchase Order
+        </button>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
           <div className="md:col-span-2">
-            <label className="mb-1 block text-xs font-medium text-slate-600">Search</label>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Search (product name)</label>
             <input
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Products, categories, ID…"
-              value={query} onChange={e => { setQuery(e.target.value); setPage(1); }}
+              placeholder="Start typing…"
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             />
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-600">From</label>
-            <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1); }}
+            <input type="date" value={startDate}
+              onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-600">To</label>
-            <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1); }}
+            <input type="date" value={endDate}
+              onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Sort</label>
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="date">Newest</option>
+              <option value="lines">Most lines</option>
+              <option value="units">Most units</option>
+              <option value="grand_total">Highest total</option>
+            </select>
+          </div>
           <div className="flex items-end">
-            <button onClick={clearFilters} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50">Clear</button>
+            <button
+              onClick={() => { setSearch(""); setStartDate(""); setEndDate(""); setSortKey("date"); setPage(1); }}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+            >
+              Clear
+            </button>
           </div>
         </div>
+
+        {err && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>}
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <table className="min-w-full text-sm">
-          <thead className="bg-slate-50 text-left">
-            <tr>
-              <th className="px-4 py-3">
-                <button type="button" className="inline-flex items-center gap-1 hover:underline" onClick={() => toggleSort("date")}>
-                  Date {sortKey === "date" && <span>{sortDir === "asc" ? "↑" : "↓"}</span>}
-                </button>
-              </th>
-              <th className="px-4 py-3">
-                <button type="button" className="inline-flex items-center gap-1 hover:underline" onClick={() => toggleSort("units")}>
-                  Units {sortKey === "units" && <span>{sortDir === "asc" ? "↑" : "↓"}</span>}
-                </button>
-              </th>
-              <th className="px-4 py-3">
-                <button type="button" className="inline-flex items-center gap-1 hover:underline" onClick={() => toggleSort("lines")}>
-                  Lines {sortKey === "lines" && <span>{sortDir === "asc" ? "↑" : "↓"}</span>}
-                </button>
-              </th>
-              <th className="px-4 py-3 text-right">
-                <button type="button" className="inline-flex items-center gap-1 hover:underline" onClick={() => toggleSort("grand_total")}>
-                  Grand Total {sortKey === "grand_total" && <span>{sortDir === "asc" ? "↑" : "↓"}</span>}
-                </button>
-              </th>
-              <th className="px-4 py-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paged.map(po => {
-              const t = totals(po);
-              return (
-                <tr key={po.id} className="border-t">
-                  <td className="px-4 py-3">{dateOnly(po.created_at)}</td>
-                  <td className="px-4 py-3">{t.units}</td>
-                  <td className="px-4 py-3">{t.lines}</td>
-                  <td className="px-4 py-3 text-right font-medium">{money(t.grand)}</td>
-                  <td className="px-4 py-3">
-                    <button onClick={() => nav(`/purchase-orders/${po.id}`)} className="text-blue-700 hover:underline">View</button>
-                  </td>
-                </tr>
-              );
-            })}
-            {paged.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-slate-500">No purchase orders found.</td>
-              </tr>
+      <div className="grid gap-3">
+        {loading && (
+          <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center text-slate-500">
+            Loading purchase orders…
+          </div>
+        )}
+        {!loading && paged.length === 0 && (
+          <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center text-slate-500">
+            No purchase orders match your filters.
+          </div>
+        )}
+        {!loading && paged.map((po) => (
+          <div key={po.id} className="transition rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md">
+            <div className="flex items-center justify-between text-sm text-slate-500">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-slate-700">🗓 {dateOnly(po.created_at)}</span>
+                <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-amber-700">📦 {po.items?.length ?? 0} lines</span>
+                <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-emerald-700">🧮 {money((po.items ?? []).reduce((s, i) => s + (i.quantity || 0) * (i.unit_cost || 0), 0))}</span>
+              </div>
+              <div className="font-semibold">
+                {money(((po.items ?? []).reduce((s, i) => s + (i.quantity || 0) * (i.unit_cost || 0), 0)) + (po.shipping_cost ?? 0) + (po.handling_cost ?? 0))}
+              </div>
+            </div>
+
+            {po.items && po.items.length > 0 && (
+              <div className="mt-3 divide-y rounded-lg border border-slate-200">
+                {po.items.map((it) => (
+                  <div key={it.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                    <span>{(it.product_name ?? `Product #${it.product_id}`)} × {it.quantity}</span>
+                    <span className="font-medium">{money((it.quantity || 0) * (it.unit_cost || 0))}</span>
+                  </div>
+                ))}
+              </div>
             )}
-          </tbody>
-        </table>
+          </div>
+        ))}
       </div>
 
-      {/* Pager */}
       {totalPages > 1 && (
         <div className="flex justify-center gap-1 pt-2">
           {Array.from({ length: totalPages }, (_, i) => (
@@ -190,7 +214,7 @@ export default function PurchaseOrdersPage() {
               onClick={() => setPage(i + 1)}
               className={[
                 "min-w-[2.25rem] rounded-lg border px-3 py-1 text-sm",
-                page === i + 1 ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 bg-white hover:bg-slate-50"
+                pageSafe === i + 1 ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 bg-white hover:bg-slate-50",
               ].join(" ")}
             >
               {i + 1}

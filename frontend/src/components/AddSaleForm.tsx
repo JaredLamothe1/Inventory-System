@@ -33,6 +33,32 @@ const toNum = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+// ---- date helpers (TZ-safe for date-only) ----
+const localTodayYMD = () => {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+};
+
+/** Normalize whatever the API gives us into "YYYY-MM-DD" without timezone conversion. */
+const normalizeAPIDateToYMD = (val: unknown): string => {
+  if (!val) return localTodayYMD();
+  const s = String(val).trim();
+  // already "YYYY-MM-DD"
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // looks like ISO with time: "YYYY-MM-DDThh:mm..."
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.slice(0, 10);
+  // last resort: if it's some other parsable thing, only then use Date for a fallback
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  }
+  return localTodayYMD();
+};
+
 export default function AddSaleForm() {
   const { saleId } = useParams();
   const isEditing = Boolean(saleId);
@@ -76,12 +102,12 @@ export default function AddSaleForm() {
     })();
   }, []);
 
-  // Default date (new sale)
+  // Default date for NEW sale — use LOCAL today, not toISOString()
   useEffect(() => {
-    if (!isEditing) setSaleDate(new Date().toISOString().split("T")[0]);
+    if (!isEditing) setSaleDate(localTodayYMD());
   }, [isEditing]);
 
-  // Prefill edit
+  // Prefill when editing
   useEffect(() => {
     if (!isEditing || !saleId) return;
     const allowed: PaymentType[] = ["cash", "venmo", "check", "credit_card"];
@@ -89,8 +115,8 @@ export default function AddSaleForm() {
       try {
         const res = await fetch(`${import.meta.env.VITE_API_URL}/sales/${saleId}`, { headers: authHeaders() });
         const data = await res.json();
-        const normalized = (data?.sale_date ? String(data.sale_date).split("T")[0] : new Date().toISOString().split("T")[0]);
-        setSaleDate(normalized);
+
+        setSaleDate(normalizeAPIDateToYMD(data?.sale_date)); // ← TZ-safe normalization
         setNotes(data?.notes ?? "");
         setSaleType(data?.sale_type ?? "individual");
         const pt = String(data?.payment_type ?? "cash").toLowerCase();
@@ -160,7 +186,7 @@ export default function AddSaleForm() {
   const cardFee = useMemo(() => (paymentType === "credit_card" ? Math.max(0, toNum(creditCardFeeFlat)) : 0), [paymentType, creditCardFeeFlat]);
   const grandTotal = useMemo(() => subtotal + cardFee, [subtotal, cardFee]);
 
-  // Submit
+  // Submit — send sale_date exactly as YYYY-MM-DD string (no Date(), no toISOString())
   const handleSubmit = async () => {
     if (items.length === 0) return alert("Please add at least one product.");
     const payload = {
@@ -258,13 +284,20 @@ export default function AddSaleForm() {
             <div className="mt-3 space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <label className="text-sm text-slate-600">Date</label>
-                <input type="date" value={saleDate} onChange={e => setSaleDate(e.target.value)}
-                  className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <input
+                  type="date"
+                  value={saleDate}
+                  onChange={e => setSaleDate(e.target.value)}
+                  className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
               <div className="flex items-center justify-between gap-3">
                 <label className="text-sm text-slate-600">Sale type</label>
-                <select value={saleType} onChange={e => setSaleType(e.target.value)}
-                  className="w-40 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <select
+                  value={saleType}
+                  onChange={e => setSaleType(e.target.value)}
+                  className="w-40 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
                   <option value="individual">Individual</option>
                   <option value="batch-daily">Batch - Daily</option>
                   <option value="batch-weekly">Batch - Weekly</option>
@@ -272,8 +305,11 @@ export default function AddSaleForm() {
               </div>
               <div className="flex items-center justify-between gap-3">
                 <label className="text-sm text-slate-600">Payment</label>
-                <select value={paymentType} onChange={e => setPaymentType(e.target.value as PaymentType)}
-                  className="w-40 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <select
+                  value={paymentType}
+                  onChange={e => setPaymentType(e.target.value as PaymentType)}
+                  className="w-40 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
                   <option value="cash">Cash</option>
                   <option value="venmo">Venmo</option>
                   <option value="check">Check</option>
@@ -302,14 +338,21 @@ export default function AddSaleForm() {
                   <div className="mt-3 grid grid-cols-3 gap-3">
                     <div>
                       <label className="block text-xs text-slate-500 mb-1">Quantity</label>
-                      <input type="number" min={0} value={line.quantity}
+                      <input
+                        type="number"
+                        min={0}
+                        value={line.quantity}
                         onChange={e => setQty(line.product_id, Number(e.target.value))}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
                     </div>
                     <div>
                       <label className="block text-xs text-slate-500 mb-1">Unit price</label>
-                      <input value={line.unit_price} onChange={e => setPrice(line.product_id, e.target.value)}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      <input
+                        value={line.unit_price}
+                        onChange={e => setPrice(line.product_id, e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
                     </div>
                     <div className="flex flex-col justify-end text-right text-sm">
                       <div className="text-slate-500">Line total</div>
@@ -318,7 +361,11 @@ export default function AddSaleForm() {
                   </div>
                 </div>
               ))}
-              {items.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-slate-500">No items yet.</div>}
+              {items.length === 0 && (
+                <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-slate-500">
+                  No items yet.
+                </div>
+              )}
             </div>
 
             <div className="mt-4 space-y-1 border-t border-slate-200 pt-4 text-sm">
