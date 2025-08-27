@@ -1,4 +1,4 @@
-# app/config.py
+# backend/app/config.py
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:5173"
 
     # ---- Database ----
-    DATABASE_URL: str | None = None
-    DEV_DB_PATH: str | None = None
+    DATABASE_URL: str | None = None         # Postgres in prod
+    DEV_DB_PATH: str | None = None          # Optional: absolute path to test.db
     DEV_GUARD: bool = True
 
     # ---- Mail (FastAPI-Mail) ----
@@ -31,11 +31,11 @@ class Settings(BaseSettings):
     USE_CREDENTIALS: bool = True
     VALIDATE_CERTS: bool = True
 
-    # Allow extra env vars silently
+    # Load .env from the CWD (so `cd backend` works predictably)
     model_config = SettingsConfigDict(
-        env_file="backend/.env",
+        env_file=".env",
         case_sensitive=False,
-        extra="ignore",   # or "allow"
+        extra="ignore",
     )
 
 settings = Settings()

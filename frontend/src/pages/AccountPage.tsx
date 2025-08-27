@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import api from "@/api";
-
 import { useNavigate } from "react-router-dom";
 import useAuth from "@/hooks/useAuth";
 
@@ -12,6 +11,7 @@ type Me = {
   email: string;
   full_name?: string | null;
   is_admin: boolean;
+  credit_card_fee_flat: number; // NEW
 };
 
 type Msg = { text: string; isError: boolean } | null;
@@ -26,6 +26,7 @@ export default function AccountPage() {
   // Modals
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showFeeModal, setShowFeeModal] = useState(false); // NEW
 
   // Profile form state
   const [fullName, setFullName] = useState("");
@@ -37,7 +38,12 @@ export default function AccountPage() {
   const [newPwd, setNewPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
   const [savingPwd, setSavingPwd] = useState(false);
-  const mismatch = newPwd.length > 0 && confirmPwd.length > 0 && newPwd !== confirmPwd;
+  const mismatch =
+    newPwd.length > 0 && confirmPwd.length > 0 && newPwd !== confirmPwd;
+
+  // Fee form state
+  const [feeInput, setFeeInput] = useState<string>("0.00");
+  const [savingFee, setSavingFee] = useState(false);
 
   // Fetch current user
   useEffect(() => {
@@ -50,6 +56,7 @@ export default function AccountPage() {
         setMe(res.data);
         setFullName(res.data.full_name ?? "");
         setEmail(res.data.email);
+        setFeeInput((res.data.credit_card_fee_flat ?? 0).toFixed(2)); // NEW
       } catch {
         logout();
         navigate("/login");
@@ -73,7 +80,10 @@ export default function AccountPage() {
       setMsg({ text: "Profile updated.", isError: false });
       setShowProfileModal(false);
     } catch (err: any) {
-      setMsg({ text: err.response?.data?.detail || "Update failed.", isError: true });
+      setMsg({
+        text: err.response?.data?.detail || "Update failed.",
+        isError: true,
+      });
     } finally {
       setSavingProfile(false);
     }
@@ -95,14 +105,57 @@ export default function AccountPage() {
         { old_password: oldPwd, new_password: newPwd },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setMsg({ text: "Password changed. Please log in again.", isError: false });
+      setMsg({
+        text: "Password changed. Please log in again.",
+        isError: false,
+      });
       setShowPasswordModal(false);
       logout();
-      setTimeout(() => navigate("/login"), 1500);
+      setTimeout(() => navigate("/login"), 1200);
     } catch (err: any) {
-      setMsg({ text: err.response?.data?.detail || "Change password failed.", isError: true });
+      setMsg({
+        text: err.response?.data?.detail || "Change password failed.",
+        isError: true,
+      });
     } finally {
       setSavingPwd(false);
+    }
+  };
+
+  // NEW: save fee
+  const saveFee = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token) return;
+
+    // simple validation
+    const parsed = parseFloat(feeInput);
+    if (Number.isNaN(parsed) || parsed < 0 || parsed > 1000) {
+      setMsg({
+        text: "Fee must be a number between 0 and 1000.",
+        isError: true,
+      });
+      return;
+    }
+
+    setSavingFee(true);
+    setMsg(null);
+    try {
+      const res = await api.patch<Me>(
+        `${API_URL}/me`,
+        { credit_card_fee_flat: parsed },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setMe(res.data);
+      setFeeInput((res.data.credit_card_fee_flat ?? 0).toFixed(2));
+      setMsg({ text: "Credit card fee updated.", isError: false });
+      setShowFeeModal(false);
+    } catch (err: any) {
+      setMsg({
+        text: err.response?.data?.detail || "Updating fee failed.",
+        isError: true,
+      });
+    } finally {
+      setSavingFee(false);
     }
   };
 
@@ -114,30 +167,52 @@ export default function AccountPage() {
     );
   }
 
+  const feeDisplay = `$${(me.credit_card_fee_flat ?? 0).toFixed(2)}`;
+
   return (
     <div className="min-h-screen bg-gray-100 py-8 px-4 flex justify-center">
       <div className="bg-white rounded-2xl shadow p-6 w-full max-w-2xl">
         <h1 className="text-2xl font-bold mb-6">Account</h1>
 
         {msg && (
-          <p className={`text-sm mb-4 ${msg.isError ? "text-red-600" : "text-green-600"}`}>
+          <p
+            className={`text-sm mb-4 ${
+              msg.isError ? "text-red-600" : "text-green-600"
+            }`}
+          >
             {msg.text}
           </p>
         )}
 
         {/* Overview list */}
         <ul className="divide-y divide-gray-200">
-            <InfoRow label="Full Name" value={me.full_name || "—"} onEdit={() => setShowProfileModal(true)} />
-            <InfoRow label="Username" value={me.username} readOnly />
-            <InfoRow label="Email" value={me.email} onEdit={() => setShowProfileModal(true)} />
-            <InfoRow label="Password" value="********" onEdit={() => setShowPasswordModal(true)} />
+          <InfoRow
+            label="Full Name"
+            value={me.full_name || "—"}
+            onEdit={() => setShowProfileModal(true)}
+          />
+          <InfoRow label="Username" value={me.username} readOnly />
+          <InfoRow
+            label="Email"
+            value={me.email}
+            onEdit={() => setShowProfileModal(true)}
+          />
+          <InfoRow
+            label="Password"
+            value="********"
+            onEdit={() => setShowPasswordModal(true)}
+          />
+          {/* NEW: Credit Card Fee (flat) */}
+          <InfoRow
+            label="Credit Card Fee"
+            value={feeDisplay}
+            onEdit={() => setShowFeeModal(true)}
+          />
         </ul>
 
         {/* Admin badge */}
         {me.is_admin && (
-          <p className="mt-4 text-xs text-gray-500">
-            You are an administrator.
-          </p>
+          <p className="mt-4 text-xs text-gray-500">You are an administrator.</p>
         )}
       </div>
 
@@ -273,6 +348,57 @@ export default function AccountPage() {
           </form>
         </Modal>
       )}
+
+      {/* NEW: Credit Card Fee Modal */}
+      {showFeeModal && (
+        <Modal title="Edit Credit Card Fee" onClose={() => setShowFeeModal(false)}>
+          <form onSubmit={saveFee} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1" htmlFor="fee">
+                Flat Fee (USD)
+              </label>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500">$</span>
+                <input
+                  id="fee"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={1000}
+                  inputMode="decimal"
+                  value={feeInput}
+                  onChange={(e) => setFeeInput(e.target.value)}
+                  className="w-40 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring focus:ring-blue-500"
+                  placeholder="0.00"
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                This amount will be added as a <em>processing fee</em> to sales with payment
+                type <strong>Credit Card</strong>.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowFeeModal(false)}
+                className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingFee}
+                className={`px-4 py-2 rounded-md text-white ${
+                  savingFee ? "bg-blue-400" : "bg-blue-600 hover:bg-blue-700"
+                }`}
+              >
+                {savingFee ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -290,10 +416,12 @@ const InfoRow = ({ label, value, readOnly = false, onEdit }: InfoRowProps) => {
   const canEdit = !readOnly && !!onEdit;
   return (
     <li
-      className={`py-4 flex items-center justify-between group ${canEdit ? "cursor-pointer" : ""}`}
+      className={`py-4 flex items-center justify-between group ${
+        canEdit ? "cursor-pointer" : ""
+      }`}
       onClick={canEdit ? onEdit : undefined}
     >
-      <span className="w-32 shrink-0 text-gray-500 text-sm">{label}</span>
+      <span className="w-40 shrink-0 text-gray-500 text-sm">{label}</span>
       <span className="flex-1 text-right font-medium text-gray-800 relative">
         {value}
         {canEdit && (
@@ -305,7 +433,6 @@ const InfoRow = ({ label, value, readOnly = false, onEdit }: InfoRowProps) => {
     </li>
   );
 };
-
 
 type ModalProps = {
   title: string;

@@ -2,7 +2,16 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import useAuth from "@/hooks/useAuth";
 
-const API_URL = import.meta.env.VITE_API_URL;
+// CHANGE THIS if your backend route is different:
+const LOGIN_PATH = "/login"; // e.g. "/auth/login"
+
+// Resolve API base once, with a safe dev fallback (no proxy required)
+function getApiBase(): string {
+  const v = import.meta.env.VITE_API_URL?.trim();
+  if (v && v.toLowerCase() !== "undefined") return v.replace(/\/+$/, "");
+  if (import.meta.env.DEV) return "http://127.0.0.1:8000"; // dev fallback
+  throw new Error("VITE_API_URL is not set for production.");
+}
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState("");
@@ -13,9 +22,9 @@ const Login: React.FC = () => {
 
   const { isAuthenticated, loading: authLoading, setToken } = useAuth();
 
-  // Redirect already-logged-in users
+  // If already logged in, bounce to dashboard
   useEffect(() => {
-    if (!authLoading && isAuthenticated) navigate("/dashboard");
+    if (!authLoading && isAuthenticated) navigate("/dashboard", { replace: true });
   }, [authLoading, isAuthenticated, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -28,14 +37,24 @@ const Login: React.FC = () => {
     setLoading(true);
     setError("");
 
+    let API_BASE: string;
+    try {
+      API_BASE = getApiBase();
+    } catch (err: any) {
+      setLoading(false);
+      setError(err?.message || "API base URL missing.");
+      return;
+    }
+
     try {
       const form = new URLSearchParams();
       form.append("username", username);
       form.append("password", password);
 
-      const res = await fetch(`${API_URL}/login`, {
+      const res = await fetch(`${API_BASE}${LOGIN_PATH}`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        // credentials: "include", // uncomment if using cookie auth
         body: form.toString(),
       });
 
@@ -44,15 +63,18 @@ const Login: React.FC = () => {
           setError("Invalid username or password.");
         } else {
           const data = await res.json().catch(() => ({}));
-          setError(data?.detail || "Unexpected error occurred.");
+          setError(data?.detail || `Unexpected error (${res.status}).`);
         }
         return;
       }
 
-      const data = await res.json();
-      localStorage.setItem("token", data.access_token);
-      setToken?.(data.access_token); // keep hook state synced
-      navigate("/dashboard");
+      const data = await res.json().catch(() => ({}));
+      if (data?.access_token) {
+        localStorage.setItem("token", data.access_token);
+        setToken?.(data.access_token);
+      }
+
+      navigate("/dashboard", { replace: true });
     } catch (err) {
       console.error(err);
       setError("Failed to connect to the server.");
@@ -74,9 +96,7 @@ const Login: React.FC = () => {
       <div className="bg-white p-8 rounded-xl shadow-xl w-full max-w-sm">
         <h2 className="text-2xl font-bold mb-6 text-center">Login</h2>
 
-        {error && (
-          <div className="mb-4 text-red-500 text-sm text-center">{error}</div>
-        )}
+        {error && <div className="mb-4 text-red-500 text-sm text-center">{error}</div>}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -91,6 +111,7 @@ const Login: React.FC = () => {
               onChange={(e) => setUsername(e.target.value)}
               disabled={loading}
               autoFocus
+              autoComplete="username"
             />
           </div>
 
@@ -105,6 +126,7 @@ const Login: React.FC = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
+              autoComplete="current-password"
             />
           </div>
 

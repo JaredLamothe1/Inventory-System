@@ -31,7 +31,7 @@ type Product = {
 type SaleItem = {
   quantity: number;
   unit_price: number;
-  product: Product;
+  product: Product; // sales payload still nests product
 };
 
 type Sale = {
@@ -41,10 +41,13 @@ type Sale = {
   items: SaleItem[];
 };
 
+// purchase order items are flat (no nested product)
 type POItem = {
+  product_id: number;
+  product_name: string;
+  category_name?: string | null;
   quantity: number;
   unit_cost: number;
-  product: { id: number; name: string };
 };
 
 type PurchaseOrder = {
@@ -62,28 +65,29 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const token = localStorage.getItem("token");
-        const config = { headers: { Authorization: `Bearer ${token}` } };
+  const fetchData = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
 
-        const [salesRes, productRes, poRes] = await Promise.all([
-          api.get(`${import.meta.env.VITE_API_URL}/sales/`, config),
-          api.get(`${import.meta.env.VITE_API_URL}/products/?limit=1000`, config),
-          api.get(`${import.meta.env.VITE_API_URL}/purchase_orders/`, config),
-        ]);
+      const [salesRes, productRes, poRes] = await Promise.all([
+        api.get("/sales/", config),
+        api.get("/products/", { ...config, params: { limit: 1000 } }),
+        api.get("/purchase_orders/", config),
+      ]);
 
-        setSales(salesRes.data || []);
-        setProducts((productRes.data?.products ?? []) as Product[]);
-        setPurchaseOrders(poRes.data || []);
-      } catch (err) {
-        console.error("Dashboard fetch error:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, []);
+      setSales((salesRes.data ?? []) as Sale[]);
+      setProducts(((productRes.data?.products ?? []) as Product[]));
+      setPurchaseOrders((poRes.data ?? []) as PurchaseOrder[]);
+    } catch (err) {
+      console.error("Dashboard fetch error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+  fetchData();
+}, []);
+
 
   // ---------- Dates ----------
   const now = new Date();
@@ -92,7 +96,7 @@ const Dashboard: React.FC = () => {
   const isInYear  = (d: Date) => d.getFullYear() === currentYear;
   const saleDate  = (s: Sale)   => new Date(s.sale_date ?? s.created_at);
 
-  // ---------- Defensive filter: ignore empty/itemless or invalid-date sales ----------
+  // ---------- Defensive filter ----------
   const validSales = useMemo(() => {
     return sales.filter((s) => {
       const hasItems = Array.isArray(s.items) && s.items.length > 0;
@@ -102,15 +106,21 @@ const Dashboard: React.FC = () => {
     });
   }, [sales]);
 
-  // ---------- Cost basis: Weighted Avg (lifetime to the end of today) ----------
+  // ---------- Cost basis: Weighted Avg ----------
   const avgCostByProduct = useMemo(() => {
     const totalUnits: Record<number, number> = {};
     const totalCost: Record<number, number> = {};
     for (const po of purchaseOrders) {
       const pod = new Date(po.created_at);
-      if (Number.isNaN(pod.getTime())) continue;
+      if (Number.isNaN(pod.getTime()) || !Array.isArray(po.items)) continue;
       for (const it of po.items) {
-        const id = it.product.id;
+        if (
+          it == null ||
+          typeof it.product_id !== "number" ||
+          typeof it.quantity !== "number" ||
+          typeof it.unit_cost !== "number"
+        ) continue;
+        const id = it.product_id;
         totalUnits[id] = (totalUnits[id] || 0) + it.quantity;
         totalCost[id]  = (totalCost[id]  || 0) + it.quantity * it.unit_cost;
       }
@@ -129,16 +139,18 @@ const Dashboard: React.FC = () => {
 
   const sumRevenue = (salesList: Sale[]) => {
     let rev = 0;
-    for (const s of salesList) {
-      for (const it of s.items) rev += it.quantity * it.unit_price;
-    }
+    for (const s of salesList) for (const it of s.items) rev += it.quantity * it.unit_price;
     return rev;
   };
 
   const sumCOGS = (salesList: Sale[]) => {
     let cost = 0;
     for (const s of salesList) {
-      for (const it of s.items) cost += it.quantity * (avgCostByProduct[it.product.id] || 0);
+      for (const it of s.items) {
+        const pid = it.product?.id;
+        const avgCost = typeof pid === "number" ? (avgCostByProduct[pid] || 0) : 0;
+        cost += it.quantity * avgCost;
+      }
     }
     return cost;
   };
@@ -172,7 +184,7 @@ const Dashboard: React.FC = () => {
     return { categoryTotalsYTD: byCat, topProductsYTD: top };
   }, [ytdSales]);
 
-  // Monthly series for current year (Revenue + Profit)
+  // Monthly series (Revenue & Profit)
   const monthlyYTD = useMemo(() => {
     const rows = Array.from({ length: 12 }).map((_, m) => ({
       name: monthNames[m],
@@ -188,7 +200,8 @@ const Dashboard: React.FC = () => {
       rows[m].orders += 1;
       for (const it of s.items) {
         const rev  = it.quantity * it.unit_price;
-        const cost = it.quantity * (avgCostByProduct[it.product.id] || 0);
+        const pid  = it.product?.id;
+        const cost = it.quantity * (typeof pid === "number" ? (avgCostByProduct[pid] || 0) : 0);
         rows[m].revenue += rev;
         rows[m].cost    += cost;
         rows[m].profit   = rows[m].revenue - rows[m].cost;
@@ -219,7 +232,6 @@ const Dashboard: React.FC = () => {
 
   if (loading) return <div className="p-6">Loading…</div>;
 
-  // --- UI DATA ---
   const categoryChartData = Object.entries(categoryTotalsYTD).map(([name, value]) => ({ name, value }));
 
   return (
@@ -303,8 +315,8 @@ const Dashboard: React.FC = () => {
             <ul className="divide-y">
               {recentPOs.map((po) => {
                 const d = new Date(po.created_at);
-                const units = po.items?.reduce((a, i) => a + i.quantity, 0) ?? 0;
-                const spend = po.items?.reduce((a, i) => a + i.quantity * i.unit_cost, 0) ?? 0;
+                const units = (po.items ?? []).reduce((a, i) => a + (i.quantity || 0), 0);
+                const spend = (po.items ?? []).reduce((a, i) => a + (i.quantity || 0) * (i.unit_cost || 0), 0);
                 return (
                   <li key={po.id} className="py-2 flex items-center justify-between">
                     <span className="font-medium">{d.toLocaleDateString()}</span>

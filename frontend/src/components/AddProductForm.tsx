@@ -1,3 +1,4 @@
+// AddProductForm.tsx
 import React, { useState, useEffect, useRef } from "react";
 import api from "@/api";
 import CategoryPicker from "@/components/CategoryPicker";
@@ -6,6 +7,8 @@ import { CategoryNode } from "@/components/CategoryTree";
 interface AddProductFormProps {
   closeForm?: () => void;
   catTree: CategoryNode[];
+  /** Optional: preselect the category (e.g., current sidebar filter) */
+  initialCategoryId?: number | null;
 }
 
 type CategoryOut = {
@@ -16,21 +19,39 @@ type CategoryOut = {
   purchase_tiers: any[];
 };
 
-const AddProductForm: React.FC<AddProductFormProps> = ({ closeForm, catTree }) => {
+const AddProductForm: React.FC<AddProductFormProps> = ({
+  closeForm,
+  catTree,
+  initialCategoryId,
+}) => {
+  // form fields
   const [name, setName] = useState("");
   const [unitCost, setUnitCost] = useState<number | "">("");
   const [salePrice, setSalePrice] = useState<number | "">("");
   const [quantityInStock, setQuantityInStock] = useState<number>(0);
-  const [categoryId, setCategoryId] = useState<number | null>(null);
+  const [categoryId, setCategoryId] = useState<number | null>(
+    initialCategoryId ?? null
+  );
 
+  // ui state
   const [message, setMessage] = useState<string | null>(null);
   const [loadingCat, setLoadingCat] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Track if user has manually edited fields so we don't clobber them on category change
+  // Track if user manually edited price fields so category auto-fill won't clobber them
   const unitCostDirty = useRef(false);
   const salePriceDirty = useRef(false);
 
-  /* ------------ Auto-fill on category change ------------ */
+  // If parent changes initialCategoryId while form is open (rare), respect it once if we have no selection yet
+  useEffect(() => {
+    if (categoryId == null && initialCategoryId != null) {
+      setCategoryId(initialCategoryId);
+      unitCostDirty.current = false;
+      salePriceDirty.current = false;
+    }
+  }, [initialCategoryId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Auto-fill prices when category changes (unless user already edited those fields) */
   useEffect(() => {
     if (categoryId == null) return;
     setLoadingCat(true);
@@ -38,9 +59,12 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ closeForm, catTree }) =
       .get<CategoryOut>(`/categories/${categoryId}`)
       .then((res) => {
         const cat = res.data;
-        const base = cat.base_purchase_price != null ? Number(cat.base_purchase_price) : "";
-        const sale = cat.default_sale_price != null ? Number(cat.default_sale_price) : "";
-
+        const base =
+          cat.base_purchase_price != null
+            ? Number(cat.base_purchase_price)
+            : "";
+        const sale =
+          cat.default_sale_price != null ? Number(cat.default_sale_price) : "";
         if (!unitCostDirty.current) setUnitCost(base);
         if (!salePriceDirty.current) setSalePrice(sale);
       })
@@ -50,33 +74,6 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ closeForm, catTree }) =
       })
       .finally(() => setLoadingCat(false));
   }, [categoryId]);
-
-  /* ------------ Handlers ------------ */
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const payload = {
-      name,
-      unit_cost: unitCost === "" ? null : Number(unitCost),
-      sale_price: salePrice === "" ? null : Number(salePrice),
-      quantity_in_stock: quantityInStock,
-      category_id: categoryId,
-      // hidden fields we’re not using now
-      reorder_threshold: 0,
-      restock_target: 0,
-      storage_space: null,
-      collection_ids: [], // we’ll hook collections in later
-    };
-
-    try {
-      await api.post("/products/", payload);
-      setMessage("Product added!");
-      closeForm?.();
-    } catch (err: any) {
-      console.error("Error creating product:", err);
-      setMessage(err?.response?.data?.detail ?? "There was an error. Please try again.");
-    }
-  };
 
   const onUnitCostChange = (v: string) => {
     unitCostDirty.current = true;
@@ -88,11 +85,46 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ closeForm, catTree }) =
     setSalePrice(v === "" ? "" : Number(v));
   };
 
-  /* ------------ Render ------------ */
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMessage(null);
+    setIsSubmitting(true);
+
+    const payload = {
+      name,
+      unit_cost: unitCost === "" ? null : Number(unitCost),
+      sale_price: salePrice === "" ? null : Number(salePrice),
+      quantity_in_stock: Number.isFinite(quantityInStock) ? quantityInStock : 0,
+      category_id: categoryId, // optional; parent may preselect via initialCategoryId
+      // placeholders for future features:
+      reorder_threshold: 0,
+      restock_target: 0,
+      storage_space: null,
+      collection_ids: [],
+    };
+
+    try {
+      await api.post("/products/", payload);
+      setMessage("Product added!");
+      closeForm?.();
+    } catch (err: any) {
+      console.error("Error creating product:", err);
+      setMessage(
+        err?.response?.data?.detail ?? "There was an error. Please try again."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4 text-sm">
       {message && (
-        <p className={`text-center text-sm ${message.includes("error") ? "text-red-600" : "text-green-600"}`}>
+        <p
+          className={`text-center text-sm ${
+            message.toLowerCase().includes("error") ? "text-red-600" : "text-green-700"
+          }`}
+        >
           {message}
         </p>
       )}
@@ -109,16 +141,22 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ closeForm, catTree }) =
         />
       </div>
 
-      {/* Category */}
+      {/* Category (optional, but recommended for filtered views) */}
       <div>
         <label className="block mb-1 font-medium">Category (optional)</label>
-        <CategoryPicker tree={catTree} value={categoryId} onChange={(id) => {
-          // reset dirty flags when switching category
-          unitCostDirty.current = false;
-          salePriceDirty.current = false;
-          setCategoryId(id);
-        }} />
-        {loadingCat && <p className="text-xs text-gray-500 mt-1">Loading category prices…</p>}
+        <CategoryPicker
+          tree={catTree}
+          value={categoryId}
+          onChange={(id) => {
+            // Reset dirty flags so new category can auto-fill
+            unitCostDirty.current = false;
+            salePriceDirty.current = false;
+            setCategoryId(id);
+          }}
+        />
+        {loadingCat && (
+          <p className="text-xs text-gray-500 mt-1">Loading category prices…</p>
+        )}
       </div>
 
       {/* Pricing + Qty */}
@@ -128,6 +166,7 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ closeForm, catTree }) =
           <input
             type="number"
             step="0.01"
+            min="0"
             className="w-full p-2 border rounded"
             value={unitCost}
             onChange={(e) => onUnitCostChange(e.target.value)}
@@ -139,6 +178,7 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ closeForm, catTree }) =
           <input
             type="number"
             step="0.01"
+            min="0"
             className="w-full p-2 border rounded"
             value={salePrice}
             onChange={(e) => onSalePriceChange(e.target.value)}
@@ -151,18 +191,25 @@ const AddProductForm: React.FC<AddProductFormProps> = ({ closeForm, catTree }) =
         <label className="block mb-1 font-medium">Quantity in stock</label>
         <input
           type="number"
+          min="0"
           className="w-full p-2 border rounded"
           value={quantityInStock}
-          onChange={(e) => setQuantityInStock(Number(e.target.value))}
+          onChange={(e) => {
+            const v = e.target.value;
+            setQuantityInStock(v === "" ? 0 : Number(v));
+          }}
           required
         />
       </div>
 
       <button
         type="submit"
-        className="w-full p-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        disabled={isSubmitting}
+        className={`w-full p-2 text-white rounded ${
+          isSubmitting ? "bg-blue-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
+        }`}
       >
-        Add Product
+        {isSubmitting ? "Adding…" : "Add Product"}
       </button>
     </form>
   );

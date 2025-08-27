@@ -1,4 +1,3 @@
-# app/routes/sale.py
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -61,6 +60,24 @@ def _revert_inventory_for_items(
             )
 
 
+def _items_subtotal(items: List[SaleItem]) -> float:
+    """Compute subtotal from in-memory SaleItem rows (quantity * unit_price)."""
+    return float(sum((it.quantity or 0) * (it.unit_price or 0.0) for it in items))
+
+
+def _recalc_processing_fee(sale: Sale, fee_flat: float) -> None:
+    """
+    If payment_type is credit card, use flat dollar fee per sale.
+    Otherwise set processing_fee = 0.0.
+    """
+    pt = (sale.payment_type or "").lower()
+    if pt == "credit_card":
+        sale.processing_fee = round(float(fee_flat or 0.0), 2)
+    else:
+        sale.processing_fee = 0.0
+
+
+
 # ----------------------------
 # Create
 # ----------------------------
@@ -78,10 +95,12 @@ def create_sale(
             sale_date=sale_data.sale_date,
             notes=sale_data.notes,
             sale_type=(sale_data.sale_type or "individual"),
+            payment_type=(sale_data.payment_type or "cash"),
             user_id=current_user.id,
         )
         db.add(new_sale)
 
+        # Create items & apply inventory deltas
         for item in sale_data.items:
             product = _get_product(db, item.product_id, current_user.id)
             if not product:
@@ -113,6 +132,9 @@ def create_sale(
                 )
             )
 
+        # Compute processing fee based on user's configured percent
+        _recalc_processing_fee(new_sale, float(getattr(current_user, "credit_card_fee_flat", 0.0) or 0.0))
+
         db.commit()
         db.refresh(new_sale)
         return new_sale
@@ -143,12 +165,11 @@ def update_sale(
         for item in list(sale.items):
             db.delete(item)
 
-        # (Optional) flush not required here; commit later handles it
-
         # 3) Update header
         sale.sale_date = updated_data.sale_date
         sale.notes = updated_data.notes
         sale.sale_type = updated_data.sale_type or sale.sale_type
+        sale.payment_type = updated_data.payment_type or sale.payment_type
 
         # 4) Add new items & apply inventory deltas
         for upd in updated_data.items:
@@ -180,6 +201,9 @@ def update_sale(
                     note=f"Updated sale {sale.id}",
                 )
             )
+
+        # Recompute processing fee after rebuilding items
+        _recalc_processing_fee(sale, float(getattr(current_user, "credit_card_fee_flat", 0.0) or 0.0))
 
         db.commit()
         db.refresh(sale)

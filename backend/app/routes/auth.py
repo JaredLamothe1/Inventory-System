@@ -59,11 +59,15 @@ class MeOut(BaseModel):
     email: EmailStr
     full_name: Optional[str] = None
     is_admin: bool
+    # NEW: flat dollar fee per sale when payment_type == "credit_card"
+    credit_card_fee_flat: float
 
 
 class UpdateMeIn(BaseModel):
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
+    # NEW: allow updating flat fee
+    credit_card_fee_flat: Optional[float] = None
 
 
 # ---------------------------------------------------------------------
@@ -116,6 +120,8 @@ def read_me(current_user: User = Depends(get_current_user)):
         "email": current_user.email,
         "full_name": current_user.full_name,
         "is_admin": current_user.is_admin,
+        # default to 0.0 if column not set yet
+        "credit_card_fee_flat": float(getattr(current_user, "credit_card_fee_flat", 0.0) or 0.0),
     }
 
 
@@ -139,6 +145,13 @@ def update_me(
             raise HTTPException(status_code=400, detail="Email already in use")
         current_user.email = new_email
 
+    # NEW: update flat fee (bounds: 0–1000 USD; tweak as needed)
+    if payload.credit_card_fee_flat is not None:
+        v = float(payload.credit_card_fee_flat)
+        if v < 0 or v > 1000:
+            raise HTTPException(status_code=400, detail="credit_card_fee_flat must be between 0 and 1000")
+        current_user.credit_card_fee_flat = v
+
     db.commit()
     db.refresh(current_user)
     return {
@@ -147,6 +160,7 @@ def update_me(
         "email": current_user.email,
         "full_name": current_user.full_name,
         "is_admin": current_user.is_admin,
+        "credit_card_fee_flat": float(getattr(current_user, "credit_card_fee_flat", 0.0) or 0.0),
     }
 
 
@@ -234,10 +248,10 @@ async def request_password_reset(
         ),
         subtype="plain",
     )
+
     fm = get_fastmail()
     if fm:
-      await fm.send_message(message)
-
+        await fm.send_message(message)
 
     return generic_msg
 
@@ -287,5 +301,8 @@ async def test_email():
         body="This is a test email to confirm SMTP is set up correctly!",
         subtype="plain",
     )
+    fm = get_fastmail()
+    if not fm:
+        raise HTTPException(status_code=500, detail="Email client not configured")
     await fm.send_message(message)
     return {"message": "Test email sent. Check your inbox."}
