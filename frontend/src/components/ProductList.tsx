@@ -1,5 +1,6 @@
+// src/pages/ProductList.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { Pencil, Plus, Trash2, Check, X } from "lucide-react";
+import { Pencil, Plus, Trash2, Check, X, Search, MoreVertical } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "@/api";
 import AddProductForm from "./AddProductForm";
@@ -29,6 +30,11 @@ interface Collection {
 const COLLECTIONS_URL = "/collections";
 
 /* --------------- Utils -------------- */
+const money = (n: number | string | null | undefined) => {
+  const v = Number(n);
+  return Number.isFinite(v) ? v.toLocaleString(undefined, { style: "currency", currency: "USD" }) : "—";
+};
+
 function truncate(text: string | null | undefined, n = 120): string {
   if (!text) return "—";
   const s = String(text);
@@ -65,7 +71,7 @@ export default function ProductList() {
   // Create group flow
   const [showNameModal, setShowNameModal] = useState(false);
   const [groupNameDraft, setGroupNameDraft] = useState("");
-  const [groupStep, setGroupStep] = useState<0 | 1>(0); // 0 = no wizard, 1 = picking products
+  const [groupStep, setGroupStep] = useState<0 | 1>(0); // 0 = none, 1 = picking products
   const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(new Set());
   const [groupMsg, setGroupMsg] = useState<string | null>(null);
 
@@ -91,12 +97,14 @@ export default function ProductList() {
 
   /* ------------ initial loads ------------ */
   useEffect(() => {
-    api.get("/categories/tree")
-      .then(r => setCatTree(r.data))
+    api
+      .get("/categories/tree")
+      .then((r) => setCatTree(r.data))
       .catch(() => setCatTree([]));
 
-    api.get(COLLECTIONS_URL)
-      .then(r => setCollections(r.data))
+    api
+      .get(COLLECTIONS_URL)
+      .then((r) => setCollections(r.data))
       .catch(() => setCollections([]));
   }, []);
 
@@ -110,12 +118,12 @@ export default function ProductList() {
     setLoading(true);
     api
       .get("/products/", { params })
-      .then(r => {
+      .then((r) => {
         setProducts(r.data.products || []);
         setTotalPages(Math.max(r.data.total_pages || 0, 1));
         setFetchError(null);
       })
-      .catch(err => {
+      .catch((err) => {
         console.error(err);
         setProducts([]);
         setTotalPages(1);
@@ -131,7 +139,7 @@ export default function ProductList() {
 
   const filteredProducts = useMemo(
     () =>
-      products.filter(p =>
+      products.filter((p) =>
         (p.name + " " + (p.description ?? "")).toLowerCase().includes(searchQuery.toLowerCase())
       ),
     [products, searchQuery]
@@ -139,9 +147,10 @@ export default function ProductList() {
 
   /* ------------- stock helpers ------------ */
   const handleStockUpdate = (product: Product) => {
-    api.patch(`/products/${product.id}`, { quantity_in_stock: stockInput })
-      .then(r => {
-        setProducts(ps => ps.map(p => (p.id === product.id ? r.data : p)));
+    api
+      .patch(`/products/${product.id}`, { quantity_in_stock: stockInput })
+      .then((r) => {
+        setProducts((ps) => ps.map((p) => (p.id === product.id ? r.data : p)));
         setStockEditId(null);
       })
       .catch(console.error);
@@ -151,17 +160,23 @@ export default function ProductList() {
     const t = p.reorder_threshold ?? 0;
     const qty = p.quantity_in_stock;
     const cls =
-      qty === 0 ? "bg-red-100 text-red-800"
-      : qty < t ? "bg-yellow-100 text-yellow-800"
-      : "bg-green-100 text-green-800";
-    return <span className={`px-2 py-1 text-xs font-semibold rounded-full ${cls}`}>{qty}</span>;
+      qty === 0
+        ? "bg-red-100 text-red-800"
+        : qty < t
+        ? "bg-yellow-100 text-yellow-800"
+        : "bg-green-100 text-green-800";
+    return (
+      <span className={`px-2 py-0.5 text-xs font-semibold rounded-full tabular-nums ${cls}`}>
+        {qty}
+      </span>
+    );
   };
 
   const getRowBg = (p: Product) => {
     const t = p.reorder_threshold ?? 0;
-    if (p.quantity_in_stock < 0) return "bg-red-50";
-    if (p.quantity_in_stock === 0) return "bg-red-100";
-    if (p.quantity_in_stock < t) return "bg-yellow-50";
+    if (p.quantity_in_stock < 0) return "bg-red-50/60";
+    if (p.quantity_in_stock === 0) return "bg-red-50";
+    if (p.quantity_in_stock < t) return "bg-yellow-50/60";
     return "";
   };
 
@@ -192,7 +207,7 @@ export default function ProductList() {
   };
 
   const toggleSelectProduct = (id: number) => {
-    setSelectedProductIds(prev => {
+    setSelectedProductIds((prev) => {
       const nxt = new Set(prev);
       nxt.has(id) ? nxt.delete(id) : nxt.add(id);
       return nxt;
@@ -200,17 +215,17 @@ export default function ProductList() {
   };
 
   const selectAllVisibleForWizard = () => {
-    setSelectedProductIds(prev => {
+    setSelectedProductIds((prev) => {
       const nxt = new Set(prev);
-      filteredProducts.forEach(p => nxt.add(p.id));
+      filteredProducts.forEach((p) => nxt.add(p.id));
       return nxt;
     });
   };
 
   const clearAllVisibleForWizard = () => {
-    setSelectedProductIds(prev => {
+    setSelectedProductIds((prev) => {
       const nxt = new Set(prev);
-      filteredProducts.forEach(p => nxt.delete(p.id));
+      filteredProducts.forEach((p) => nxt.delete(p.id));
       return nxt;
     });
   };
@@ -223,7 +238,7 @@ export default function ProductList() {
         name: groupNameDraft.trim(),
         product_ids: Array.from(selectedProductIds),
       });
-      setCollections(cs => [...cs, res.data]);
+      setCollections((cs) => [...cs, res.data]);
       cancelGroupWizard();
     } catch (err: any) {
       console.error(err);
@@ -249,8 +264,12 @@ export default function ProductList() {
       return;
     }
     try {
-      const res = await api.patch(`${COLLECTIONS_URL}/${editGroupId}`, { name: editGroupName.trim() });
-      setCollections(cs => cs.map(c => (c.id === editGroupId ? { ...c, name: res.data.name } : c)));
+      const res = await api.patch(`${COLLECTIONS_URL}/${editGroupId}`, {
+        name: editGroupName.trim(),
+      });
+      setCollections((cs) =>
+        cs.map((c) => (c.id === editGroupId ? { ...c, name: res.data.name } : c))
+      );
       closeRenameGroup();
     } catch (err: any) {
       console.error(err);
@@ -271,10 +290,10 @@ export default function ProductList() {
     if (!deleteGroupId) return;
     try {
       await api.delete(`${COLLECTIONS_URL}/${deleteGroupId}`);
-      setCollections(cs => cs.filter(c => c.id !== deleteGroupId));
+      setCollections((cs) => cs.filter((c) => c.id !== deleteGroupId));
       if (selectedCollectionId === deleteGroupId) setSelectedCollectionId(null);
       closeDeleteGroup();
-      setRefreshTick(t => t + 1);
+      setRefreshTick((t) => t + 1);
     } catch (err) {
       console.error(err);
     }
@@ -300,10 +319,8 @@ export default function ProductList() {
     } catch (err: any) {
       console.error(err);
       setEditProductsError(
-        err?.response?.data?.detail ||
-          "Couldn't load products. Try again or narrow your catalog."
+        err?.response?.data?.detail || "Couldn't load products. Try again or narrow your catalog."
       );
-      // Keep modal open so user can retry
       setEditProductsGroupId(g.id);
       setEditProductsGroupName(g.name);
       setAllProducts([]);
@@ -322,27 +339,30 @@ export default function ProductList() {
     setEditProductsLoading(false);
   };
   const toggleMember = (id: number) => {
-    setMembership(prev => {
+    setMembership((prev) => {
       const nxt = new Set(prev);
       nxt.has(id) ? nxt.delete(id) : nxt.add(id);
       return nxt;
     });
   };
   const visibleChoices = useMemo(
-    () => allProducts.filter(p => (p.name + " " + (p.description ?? "")).toLowerCase().includes(editProdSearch.toLowerCase())),
+    () =>
+      allProducts.filter((p) =>
+        (p.name + " " + (p.description ?? "")).toLowerCase().includes(editProdSearch.toLowerCase())
+      ),
     [allProducts, editProdSearch]
   );
   const selectAllVisible = () => {
-    setMembership(prev => {
+    setMembership((prev) => {
       const nxt = new Set(prev);
-      visibleChoices.forEach(p => nxt.add(p.id));
+      visibleChoices.forEach((p) => nxt.add(p.id));
       return nxt;
     });
   };
   const clearAllVisible = () => {
-    setMembership(prev => {
+    setMembership((prev) => {
       const nxt = new Set(prev);
-      visibleChoices.forEach(p => nxt.delete(p.id));
+      visibleChoices.forEach((p) => nxt.delete(p.id));
       return nxt;
     });
   };
@@ -367,11 +387,13 @@ export default function ProductList() {
       const product_ids = Array.from(membership);
       await api.patch(`${COLLECTIONS_URL}/${editProductsGroupId}`, { product_ids });
       // update count locally
-      setCollections(cs =>
-        cs.map(c => (c.id === editProductsGroupId ? { ...c, product_count: product_ids.length } : c))
+      setCollections((cs) =>
+        cs.map((c) =>
+          c.id === editProductsGroupId ? { ...c, product_count: product_ids.length } : c
+        )
       );
       // refresh table if viewing this group
-      if (selectedCollectionId === editProductsGroupId) setRefreshTick(t => t + 1);
+      if (selectedCollectionId === editProductsGroupId) setRefreshTick((t) => t + 1);
       closeEditProducts();
     } catch (err) {
       console.error(err);
@@ -379,79 +401,89 @@ export default function ProductList() {
     }
   };
 
+  // Prevent row navigation when clicking interactive controls
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6 p-6">
+    <div className="mx-auto max-w-7xl p-4 md:p-6">
       {/* click-away overlay for small menus */}
       {menuGroupId !== null && (
         <div className="fixed inset-0 z-10" onClick={() => setMenuGroupId(null)} />
       )}
 
-      {/* Sidebar */}
-      <aside className="bg-white rounded-lg shadow p-4 space-y-6 relative">
-        {/* Categories */}
-        <div>
-          <h2 className="text-lg font-semibold mb-2">Categories</h2>
-          <CategoryTree
-            tree={catTree}
-            selected={selectedCatId}
-            onSelect={id => {
-              setSelectedCatId(id);
-              setSelectedCollectionId(null);
-            }}
-          />
-        </div>
-
-        {/* Groups */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-lg font-semibold">Groups</h2>
-            <button
-              onClick={startGroupWizard}
-              className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-            >
-              <Plus className="w-3 h-3" /> New
-            </button>
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-[280px_1fr]">
+        {/* Sidebar */}
+        <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          {/* Categories */}
+          <div className="mb-6">
+            <div className="mb-3 flex items-center gap-2">
+              <div className="h-5 w-5 rounded bg-gradient-to-br from-blue-600 to-indigo-600" />
+              <h2 className="text-sm font-semibold tracking-wide text-slate-700">Categories</h2>
+            </div>
+            <CategoryTree
+              tree={catTree}
+              selected={selectedCatId}
+              onSelect={(id) => {
+                setSelectedCatId(id);
+                setSelectedCollectionId(null);
+              }}
+            />
           </div>
 
-          {collections.length === 0 ? (
-            <p className="text-xs text-gray-500">No groups yet.</p>
-          ) : (
-            <ul className="space-y-1">
-              {collections.map(g => (
-                <li key={g.id} className="flex items-center justify-between gap-2 relative">
-                  <button
-                    onClick={() => {
-                      setSelectedCollectionId(g.id);
-                      setSelectedCatId(null);
-                    }}
-                    className={`flex-1 text-left text-sm px-2 py-1 rounded ${
-                      selectedCollectionId === g.id ? "bg-blue-100 text-blue-700" : "hover:bg-gray-100"
-                    }`}
-                  >
-                    {g.name}
-                    {typeof g.product_count === "number" && (
-                      <span className="ml-2 text-[10px] text-gray-500">({g.product_count})</span>
-                    )}
-                  </button>
+          {/* Groups */}
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold tracking-wide text-slate-700">Groups</h2>
+              <button
+                onClick={startGroupWizard}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                New
+              </button>
+            </div>
 
-                  <div className="flex items-center gap-1 z-20">
-                    {/* EDIT menu */}
-                    <div className="relative">
+            {collections.length === 0 ? (
+              <p className="text-xs text-slate-500">No groups yet.</p>
+            ) : (
+              <ul className="space-y-1">
+                {collections.map((g) => (
+                  <li key={g.id} className="relative flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => {
+                        setSelectedCollectionId(g.id);
+                        setSelectedCatId(null);
+                      }}
+                      className={`flex-1 truncate rounded-lg px-2 py-1 text-left text-sm ${
+                        selectedCollectionId === g.id
+                          ? "bg-blue-600/10 text-blue-700"
+                          : "text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      {g.name}
+                      {typeof g.product_count === "number" && (
+                        <span className="ml-2 text-[10px] text-slate-500">
+                          ({g.product_count})
+                        </span>
+                      )}
+                    </button>
+
+                    <div className="z-20">
                       <button
-                        title="Edit"
+                        title="More"
                         onClick={(e) => {
                           e.stopPropagation();
                           setMenuGroupId(menuGroupId === g.id ? null : g.id);
                         }}
-                        className="p-1 rounded hover:bg-gray-100"
+                        className="rounded-md p-1 hover:bg-slate-100"
                       >
-                        <Pencil className="w-4 h-4" />
+                        <MoreVertical className="h-4 w-4 text-slate-600" />
                       </button>
 
                       {menuGroupId === g.id && (
-                        <div className="absolute right-0 top-7 bg-white border rounded shadow-md text-sm py-1 min-w-[160px] z-50">
+                        <div className="absolute right-0 top-7 z-50 min-w-[180px] rounded-lg border border-slate-200 bg-white py-1 shadow-md">
                           <button
-                            className="w-full text-left px-3 py-2 hover:bg-gray-100"
+                            className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
                             onClick={() => {
                               setMenuGroupId(null);
                               openRenameGroup(g);
@@ -460,7 +492,7 @@ export default function ProductList() {
                             Rename group
                           </button>
                           <button
-                            className="w-full text-left px-3 py-2 hover:bg-gray-100"
+                            className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
                             onClick={() => {
                               setMenuGroupId(null);
                               openEditProducts(g);
@@ -468,243 +500,310 @@ export default function ProductList() {
                           >
                             Edit products
                           </button>
+                          <button
+                            className="block w-full px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50"
+                            onClick={() => {
+                              setMenuGroupId(null);
+                              openDeleteGroup(g);
+                            }}
+                          >
+                            Delete group
+                          </button>
                         </div>
                       )}
                     </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </aside>
 
-                    {/* DELETE */}
-                    <button
-                      title="Delete group"
-                      onClick={() => openDeleteGroup(g)}
-                      className="p-1 rounded hover:bg-red-50 text-red-600"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+        {/* Main content */}
+        <section className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
+          {/* Group selection banner (create new) */}
+          {groupStep === 1 && (
+            <div className="absolute inset-x-0 top-0 z-10 border-b border-blue-200 bg-blue-50/80 px-3 py-2 backdrop-blur">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-sm text-slate-800">
+                  Picking products for <strong>{groupNameDraft}</strong>
+                </span>
+                <button
+                  onClick={createGroup}
+                  className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700"
+                >
+                  Create group
+                </button>
+                <button
+                  onClick={cancelGroupWizard}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <span className="text-xs text-slate-700">
+                  Selected: <strong>{selectedProductIds.size}</strong>
+                </span>
+                <button
+                  onClick={selectAllVisibleForWizard}
+                  className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50"
+                >
+                  Select All (visible)
+                </button>
+                <button
+                  onClick={clearAllVisibleForWizard}
+                  className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50"
+                >
+                  Clear (visible)
+                </button>
+                {groupMsg && <span className="text-xs text-red-600">{groupMsg}</span>}
+              </div>
+            </div>
           )}
-        </div>
-      </aside>
 
-      {/* Main content */}
-      <div className="bg-white rounded-xl shadow p-6 relative">
-        {/* Group selection banner (create new) */}
-        {groupStep === 1 && (
-          <div className="absolute inset-x-0 top-0 bg-blue-50 border-b border-blue-200 p-3 flex flex-wrap items-center gap-3">
-            <span className="text-sm">
-              Picking products for <strong>{groupNameDraft}</strong>
-            </span>
-            <button onClick={createGroup} className="px-3 py-1 text-xs bg-green-600 text-white rounded">
-              Create group
-            </button>
-            <button onClick={cancelGroupWizard} className="px-3 py-1 text-xs bg-gray-300 rounded">
-              Cancel
-            </button>
-            <span className="text-xs">Selected: <strong>{selectedProductIds.size}</strong></span>
-            <button onClick={selectAllVisibleForWizard} className="px-2 py-1 text-xs border rounded">
-              Select All (visible)
-            </button>
-            <button onClick={clearAllVisibleForWizard} className="px-2 py-1 text-xs border rounded">
-              Clear (visible)
-            </button>
-            {groupMsg && <span className="text-xs text-red-600">{groupMsg}</span>}
+          {/* Header & controls */}
+          <div className={`sticky top-0 z-0 -mx-4 -mt-4 border-b border-slate-200 bg-white/80 px-4 py-4 backdrop-blur md:-mx-6 md:px-6 ${groupStep === 1 ? "pt-10 md:pt-12" : ""}`}>
+            <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900">Products</h1>
+              <div className="flex w-full flex-col-reverse items-stretch gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search name or description…"
+                    className="w-full rounded-lg border border-slate-300 bg-white pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:w-80"
+                  />
+                </div>
+
+                <select
+                  value={sortOption}
+                  onChange={(e) => setSortOption(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="name-asc">Name A→Z</option>
+                  <option value="name-desc">Name Z→A</option>
+                  <option value="quantity_in_stock-asc">Stock Low→High</option>
+                  <option value="quantity_in_stock-desc">Stock High→Low</option>
+                </select>
+
+                <button
+                  onClick={() => setIsModalOpen(true)}
+                  className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                >
+                  <Plus className="mr-1 h-4 w-4" />
+                  Add Product
+                </button>
+              </div>
+            </div>
+
+            {fetchError && (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {fetchError}
+              </div>
+            )}
           </div>
-        )}
 
-        {/* Header & controls */}
-        <div className={`flex justify-between items-center mb-6 ${groupStep === 1 ? "mt-12" : ""}`}>
-          <h1 className="text-3xl font-bold text-blue-700">Products</h1>
-          <div className="flex items-center gap-4">
-            <select
-              value={sortOption}
-              onChange={e => setSortOption(e.target.value)}
-              className="border rounded p-2 shadow-sm text-sm"
-            >
-              <option value="name-asc">Name A→Z</option>
-              <option value="name-desc">Name Z→A</option>
-              <option value="quantity_in_stock-asc">Stock Low→High</option>
-              <option value="quantity_in_stock-desc">Stock High→Low</option>
-            </select>
-            <button
-              onClick={() => setIsModalOpen(o => !o)}
-              className="px-4 py-2 bg-blue-600 text-white rounded shadow-sm text-sm"
-            >
-              + Add Product
-            </button>
-          </div>
-        </div>
+          {/* Loading / Table */}
+          {loading ? (
+            <div className="py-16 text-center text-slate-600">Loading…</div>
+          ) : filteredProducts.length === 0 ? (
+            <div className="space-y-4 py-16 text-center text-slate-600">
+              <p>No products found.</p>
+              <button
+                onClick={() => setIsModalOpen(true)}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              >
+                Add product
+              </button>
+            </div>
+          ) : (
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-[900px] w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-slate-600">
+                    {groupStep === 1 && <th className="w-12 py-2 pr-4">Pick</th>}
+                    <th className="py-2 pr-4">Name</th>
+                    <th className="w-[34rem] py-2 pr-4">Description</th>
+                    <th className="py-2 pr-4">Category</th>
+                    <th className="py-2 pr-4">Stock</th>
+                    <th className="py-2 pr-4">Sale Price</th>
+                    <th className="py-2 pr-2 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredProducts.map((p) => {
+                    const checked = selectedProductIds.has(p.id);
+                    const canNavigate = groupStep !== 1;
 
-        {/* Fetch error */}
-        {fetchError && (
-          <div className="mb-4 p-3 bg-red-50 text-red-700 rounded text-sm">{fetchError}</div>
-        )}
+                    const onRowClick = () => {
+                      if (canNavigate) navigate(`/products/${p.id}`);
+                    };
+                    const onRowKey = (e: React.KeyboardEvent) => {
+                      if (!canNavigate) return;
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        navigate(`/products/${p.id}`);
+                      }
+                    };
 
-        {/* Search */}
-        <div className="mb-6">
-          <input
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search by name or description…"
-            className="w-full md:w-96 p-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 text-sm"
-          />
-        </div>
-
-        {/* Loading / Table */}
-        {loading ? (
-          <div className="text-center text-gray-700 py-12">Loading…</div>
-        ) : filteredProducts.length === 0 ? (
-          <div className="text-center text-gray-600 py-12 space-y-4">
-            <p>No products found.</p>
-            <button onClick={() => setIsModalOpen(true)} className="px-6 py-2 bg-blue-600 text-white rounded shadow-sm">
-              Add product
-            </button>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-600 border-b">
-                  {groupStep === 1 && <th className="py-2 pr-4 w-12">Pick</th>}
-                  <th className="py-2 pr-4">Name</th>
-                  <th className="py-2 pr-4 w-[32rem]">Description</th>
-                  <th className="py-2 pr-4">Category</th>
-                  <th className="py-2 pr-4">Stock</th>
-                  <th className="py-2 pr-4">Sale Price</th>
-                  <th className="py-2 pr-4">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredProducts.map(p => {
-                  const checked = selectedProductIds.has(p.id);
-                  return (
-                    <tr key={p.id} className={`${getRowBg(p)} border-b last:border-b-0`}>
-                      {groupStep === 1 && (
-                        <td className="py-2 pr-4">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleSelectProduct(p.id)}
-                          />
-                        </td>
-                      )}
-                      <td className="py-2 pr-4">
-                        <button className="text-blue-700 hover:underline" onClick={() => navigate(`/products/${p.id}`)}>
-                          {p.name}
-                        </button>
-                      </td>
-                      <td className="py-2 pr-4">
-                        <div title={p.description ?? ""} className="text-gray-700">
-                          {truncate(p.description, 120)}
-                        </div>
-                      </td>
-                      <td className="py-2 pr-4">{p.category_name ?? "—"}</td>
-                      <td className="py-2 pr-4">{getStockBadge(p)}</td>
-                      <td className="py-2 pr-4">
-                        {p.resolved_price ?? p.sale_price ?? p.unit_cost ?? "—"}
-                      </td>
-                      <td className="py-2 pr-4">
-                        {stockEditId === p.id ? (
-                          <div className="flex items-center gap-2">
+                    return (
+                      <tr
+                        key={p.id}
+                        onClick={onRowClick}
+                        onKeyDown={onRowKey}
+                        tabIndex={canNavigate ? 0 : -1}
+                        role={canNavigate ? "button" : undefined}
+                        className={`${getRowBg(p)} ${
+                          canNavigate ? "cursor-pointer hover:bg-slate-50/80 focus:bg-blue-50" : ""
+                        } outline-none`}
+                      >
+                        {groupStep === 1 && (
+                          <td className="py-2 pr-4">
                             <input
-                              type="number"
-                              className="w-24 border rounded p-1"
-                              value={stockInput}
-                              onChange={e => setStockInput(Number(e.target.value))}
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleSelectProduct(p.id)}
+                              onClick={stop}
+                              aria-label={`Pick ${p.name}`}
                             />
-                            <button className="p-1 rounded bg-green-600 text-white" onClick={() => handleStockUpdate(p)}>
-                              <Check className="w-4 h-4" />
-                            </button>
-                            <button className="p-1 rounded bg-gray-300" onClick={() => setStockEditId(null)}>
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            className="px-2 py-1 border rounded text-xs"
-                            onClick={() => {
-                              setStockEditId(p.id);
-                              setStockInput(p.quantity_in_stock);
-                            }}
-                          >
-                            Edit Stock
-                          </button>
+                          </td>
                         )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
 
-            {/* simple pager */}
-            <div className="flex justify-end gap-2 mt-4">
-              <button
-                className="px-3 py-1 border rounded disabled:opacity-50"
-                disabled={currentPage <= 1}
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-              >
-                Prev
-              </button>
-              <span className="text-xs self-center">
-                Page {currentPage} / {totalPages}
-              </span>
-              <button
-                className="px-3 py-1 border rounded disabled:opacity-50"
-                disabled={currentPage >= totalPages}
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
+                        {/* Name (no link; row is clickable) */}
+                        <td className="py-2 pr-4">
+                          <div className="font-medium text-slate-800">{p.name}</div>
+                        </td>
 
-        {isModalOpen && (
-          <Modal
-            title="Add Product"
-            onClose={() => {
-              setIsModalOpen(false);
-              setRefreshTick(t => t + 1);
-            }}
-          >
-            <AddProductForm catTree={[]} />
-            <div className="mt-4 text-right">
-              <button
-                className="px-4 py-2 border rounded text-sm"
-                onClick={() => {
-                  setIsModalOpen(false);
-                  setRefreshTick(t => t + 1);
-                }}
-              >
-                Done
-              </button>
+                        <td className="py-2 pr-4 text-slate-700" title={p.description ?? ""}>
+                          {truncate(p.description, 120)}
+                        </td>
+                        <td className="py-2 pr-4 text-slate-700">{p.category_name ?? "—"}</td>
+                        <td className="py-2 pr-4">{getStockBadge(p)}</td>
+                        <td className="py-2 pr-4 tabular-nums">
+                          {money(p.resolved_price ?? p.sale_price ?? p.unit_cost)}
+                        </td>
+
+                        {/* Actions (stop propagation so row doesn't navigate) */}
+                        <td className="py-2 pr-2" onClick={stop}>
+                          {stockEditId === p.id ? (
+                            <div className="flex items-center justify-end gap-2">
+                              <input
+                                type="number"
+                                value={stockInput}
+                                onChange={(e) => setStockInput(Number(e.target.value))}
+                                className="h-9 w-24 rounded-md border border-slate-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                onClick={stop}
+                              />
+                              <button
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-green-600 text-white hover:bg-green-700"
+                                onClick={() => handleStockUpdate(p)}
+                                title="Save"
+                              >
+                                <Check className="h-4 w-4" />
+                              </button>
+                              <button
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white hover:bg-slate-50"
+                                onClick={() => setStockEditId(null)}
+                                title="Cancel"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex justify-end">
+                              <button
+                                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs hover:bg-slate-50"
+                                onClick={() => {
+                                  setStockEditId(p.id);
+                                  setStockInput(p.quantity_in_stock);
+                                }}
+                              >
+                                Edit Stock
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+
+              {/* Pager */}
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <button
+                  className="rounded-md border border-slate-300 bg-white px-3 py-1 text-sm disabled:opacity-50 hover:bg-slate-50"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                >
+                  Prev
+                </button>
+                <span className="text-xs text-slate-600">
+                  Page <strong>{currentPage}</strong> / {totalPages}
+                </span>
+                <button
+                  className="rounded-md border border-slate-300 bg-white px-3 py-1 text-sm disabled:opacity-50 hover:bg-slate-50"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Next
+                </button>
+              </div>
             </div>
-          </Modal>
-        )}
+          )}
+
+          {/* Add Product */}
+         {isModalOpen && (
+  <Modal
+    title="Add Product"
+    onClose={() => {
+      setIsModalOpen(false);
+      setRefreshTick((t) => t + 1);
+    }}
+  >
+    <AddProductForm
+      catTree={catTree}                 // ← use the actual categories
+      initialCategoryId={selectedCatId} // ← preselect current filter (optional)
+      closeForm={() => {
+        setIsModalOpen(false);
+        setRefreshTick((t) => t + 1);
+      }}
+    />
+    {/* Remove the separate "Done" button; the form closes itself on success */}
+  </Modal>
+)}
+
+
+        </section>
       </div>
 
       {/* Name group modal (Step 0) */}
       {showNameModal && (
         <Modal onClose={cancelGroupWizard} title="Name your group">
           <form onSubmit={onNameSubmit} className="space-y-4 text-sm">
-            {groupMsg && <div className="text-red-600 text-xs">{groupMsg}</div>}
+            {groupMsg && <div className="text-xs text-red-600">{groupMsg}</div>}
             <div>
-              <label className="block mb-1 font-medium">Group name</label>
+              <label className="mb-1 block font-medium">Group name</label>
               <input
                 autoFocus
                 value={groupNameDraft}
-                onChange={e => setGroupNameDraft(e.target.value)}
-                className="w-full border rounded p-2"
+                onChange={(e) => setGroupNameDraft(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="e.g., Starter Bundle"
               />
             </div>
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={cancelGroupWizard} className="px-4 py-2 border rounded text-sm">
+              <button
+                type="button"
+                onClick={cancelGroupWizard}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50"
+              >
                 Cancel
               </button>
-              <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded text-sm">
+              <button
+                type="submit"
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              >
                 Next: pick products
               </button>
             </div>
@@ -716,21 +815,27 @@ export default function ProductList() {
       {editGroupId !== null && (
         <Modal onClose={closeRenameGroup} title="Rename Group">
           <div className="space-y-4 text-sm">
-            {editError && <div className="text-red-600 text-xs">{editError}</div>}
+            {editError && <div className="text-xs text-red-600">{editError}</div>}
             <div>
-              <label className="block mb-1 font-medium">New name</label>
+              <label className="mb-1 block font-medium">New name</label>
               <input
                 value={editGroupName}
-                onChange={e => setEditGroupName(e.target.value)}
-                className="w-full border rounded p-2"
+                onChange={(e) => setEditGroupName(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Enter new group name"
               />
             </div>
             <div className="flex justify-end gap-2">
-              <button onClick={closeRenameGroup} className="px-4 py-2 border rounded text-sm">
+              <button
+                onClick={closeRenameGroup}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50"
+              >
                 Cancel
               </button>
-              <button onClick={submitRenameGroup} className="px-4 py-2 bg-blue-600 text-white rounded text-sm">
+              <button
+                onClick={submitRenameGroup}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              >
                 Save
               </button>
             </div>
@@ -743,14 +848,20 @@ export default function ProductList() {
         <Modal onClose={closeDeleteGroup} title="Delete Group">
           <div className="space-y-4 text-sm">
             <p>
-              Are you sure you want to delete <strong>{deleteGroupName}</strong>? This will remove the
+              Are you sure you want to delete <strong>{deleteGroupName}</strong>? This removes the
               group but won’t delete any products.
             </p>
             <div className="flex justify-end gap-2">
-              <button onClick={closeDeleteGroup} className="px-4 py-2 border rounded text-sm">
+              <button
+                onClick={closeDeleteGroup}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50"
+              >
                 Cancel
               </button>
-              <button onClick={doDeleteGroup} className="px-4 py-2 bg-red-600 text-white rounded text-sm">
+              <button
+                onClick={doDeleteGroup}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+              >
                 Delete
               </button>
             </div>
@@ -763,12 +874,9 @@ export default function ProductList() {
         <Modal onClose={closeEditProducts} title={`Edit Products — ${editProductsGroupName}`}>
           <div className="space-y-3">
             {editProductsError && (
-              <div className="p-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded">
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                 {editProductsError}
-                <button
-                  className="ml-2 underline"
-                  onClick={reloadAllProducts}
-                >
+                <button className="ml-2 underline" onClick={reloadAllProducts}>
                   Retry
                 </button>
               </div>
@@ -777,27 +885,35 @@ export default function ProductList() {
             <div className="flex items-center gap-2">
               <input
                 value={editProdSearch}
-                onChange={e => setEditProdSearch(e.target.value)}
+                onChange={(e) => setEditProdSearch(e.target.value)}
                 placeholder="Search products…"
-                className="flex-1 border rounded p-2 text-sm"
+                className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={editProductsLoading}
               />
-              <button onClick={selectAllVisible} className="px-3 py-1 border rounded text-xs" disabled={editProductsLoading}>
+              <button
+                onClick={selectAllVisible}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                disabled={editProductsLoading}
+              >
                 Select All
               </button>
-              <button onClick={clearAllVisible} className="px-3 py-1 border rounded text-xs" disabled={editProductsLoading}>
+              <button
+                onClick={clearAllVisible}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                disabled={editProductsLoading}
+              >
                 Clear
               </button>
             </div>
 
-            <div className="max-h-80 overflow-auto border rounded">
+            <div className="max-h-80 overflow-auto rounded-lg border border-slate-200">
               {editProductsLoading ? (
-                <div className="p-3 text-sm text-gray-600">Loading products…</div>
+                <div className="p-3 text-sm text-slate-600">Loading products…</div>
               ) : visibleChoices.length === 0 ? (
-                <div className="p-3 text-sm text-gray-500">No products found.</div>
+                <div className="p-3 text-sm text-slate-500">No products found.</div>
               ) : (
-                <ul className="divide-y">
-                  {visibleChoices.map(p => {
+                <ul className="divide-y divide-slate-100">
+                  {visibleChoices.map((p) => {
                     const checked = membership.has(p.id);
                     return (
                       <li key={p.id} className="flex items-center gap-2 px-3 py-2">
@@ -807,10 +923,15 @@ export default function ProductList() {
                           onChange={() => toggleMember(p.id)}
                         />
                         <span className="text-sm">{p.name}</span>
-                        <span className="ml-2 text-xs text-gray-500 truncate" title={p.description ?? ""}>
+                        <span
+                          className="ml-2 truncate text-[11px] text-slate-500"
+                          title={p.description ?? ""}
+                        >
                           {truncate(p.description, 80)}
                         </span>
-                        <span className="ml-auto text-[10px] text-gray-500">{p.category_name ?? "—"}</span>
+                        <span className="ml-auto text-[10px] text-slate-500">
+                          {p.category_name ?? "—"}
+                        </span>
                       </li>
                     );
                   })}
@@ -818,15 +939,22 @@ export default function ProductList() {
               )}
             </div>
 
-            <div className="flex justify-between items-center text-xs text-gray-600">
+            <div className="flex items-center justify-between text-xs text-slate-600">
               <span>
                 Selected: <strong>{membership.size}</strong>
               </span>
               <div className="flex gap-2">
-                <button onClick={closeEditProducts} className="px-4 py-2 border rounded text-sm">
+                <button
+                  onClick={closeEditProducts}
+                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50"
+                >
                   Cancel
                 </button>
-                <button onClick={saveMembers} className="px-4 py-2 bg-blue-600 text-white rounded text-sm" disabled={editProductsLoading}>
+                <button
+                  onClick={saveMembers}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  disabled={editProductsLoading}
+                >
                   Save
                 </button>
               </div>
@@ -848,13 +976,17 @@ const Modal = ({
   onClose: () => void;
   title: string;
 }) => (
-  <div className="fixed inset-0 z-40 flex items-center justify-center">
-    <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-    <div className="relative bg-white rounded-lg shadow-xl w-[92vw] max-w-2xl p-4 z-50">
-      <div className="flex items-center justify-between mb-3">
+  <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+    <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+    <div className="relative z-50 w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
+      <div className="mb-3 flex items-center justify-between">
         <h3 className="text-lg font-semibold">{title}</h3>
-        <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
-          <X className="w-5 h-5" />
+        <button
+          onClick={onClose}
+          className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+          aria-label="Close"
+        >
+          <X className="h-5 w-5" />
         </button>
       </div>
       {children}

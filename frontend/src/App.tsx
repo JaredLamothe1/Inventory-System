@@ -1,3 +1,4 @@
+// src/App.tsx
 import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 
@@ -21,48 +22,47 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 import AccountPage from "./pages/AccountPage";
 import CategoryManager from "./pages/CategoryManager";
+
 const App = () => (
   <Router>
     <Routes>
-      {/* Public */}
+      {/* Public routes (no auth required) */}
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
 
-      {/* Protected */}
+      {/* Protected routes */}
       <Route element={<RequireAuth />}>
-            <Route element={<Layout />}>
-        <Route index element={<Navigate to="dashboard" />} />
-        <Route path="dashboard" element={<Dashboard />} />
+        <Route element={<Layout />}>
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<Dashboard />} />
 
-        {/* Products */}
-        <Route path="products" element={<ProductList />} />
-        <Route path="products/:id" element={<ProductDetails />} />
-        <Route path="products/categories" element={<CategoryManager />} />  {/* <-- add this */}
+          {/* Products */}
+          <Route path="products" element={<ProductList />} />
+          <Route path="products/:id" element={<ProductDetails />} />
+          <Route path="products/categories" element={<CategoryManager />} />
 
-        {/* The rest */}
-        <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
-        <Route path="purchase-orders/:id" element={<PurchaseOrderDetails />} />
-        <Route path="analytics" element={<Analytics />} />
-        <Route path="sales" element={<SalesPage />} />
-        <Route path="sales/:id" element={<SaleDetails />} />
-        <Route path="sales/edit/:saleId" element={<AddSaleForm />} />
-        <Route path="change-password" element={<ChangePasswordPage />} />
-        <Route path="account" element={<AccountPage />} />
+          {/* Purchase Orders */}
+          <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
+          <Route path="purchase-orders/:id" element={<PurchaseOrderDetails />} />
+          <Route path="purchase-orders/new" element={<AddPurchaseOrderForm />} />
+          <Route path="purchase-orders/:id/edit" element={<AddPurchaseOrderForm />} />
+
+          {/* Sales */}
+          <Route path="sales" element={<SalesPage />} />
+          <Route path="sales/:id" element={<SaleDetails />} />
+          <Route path="sales/new" element={<AddSaleForm />} />
+          <Route path="sales/edit/:saleId" element={<AddSaleForm />} />
+
+          {/* Other */}
+          <Route path="analytics" element={<Analytics />} />
+          <Route path="account" element={<AccountPage />} />
+          <Route path="change-password" element={<ChangePasswordPage />} />
+        </Route>
       </Route>
 
-      /* Optional: keep these if you really need them outside Layout */
-      <Route path="add-purchase-order" element={<AddPurchaseOrderForm />} />
-      <Route path="sales/new" element={<AddSaleForm />} />
-
-
-        {/* If you truly need these two outside the sidebar */}
-        <Route path="add-purchase-order" element={<AddPurchaseOrderForm />} />
-        <Route path="sales/new" element={<AddSaleForm />} />
-      </Route>
-
-      {/* Catch-all */}
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      {/* Catch-all: if unauth, go to /login; if authed, go to /dashboard */}
+      <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   </Router>
 );

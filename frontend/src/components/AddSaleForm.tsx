@@ -1,42 +1,39 @@
+// src/pages/AddSaleForm.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+
+type PaymentType = "cash" | "venmo" | "check" | "credit_card";
 
 interface Product {
   id: number;
   name?: string | null;
   category_id: number | null;
-  // resolved_price can come back as a string (Decimal) from the API
   resolved_price?: number | string | null;
 }
-
 interface Category {
   id: number;
   name: string;
   default_sale_price: number | null;
 }
-
 interface SaleItem {
   product_id: number;
   quantity: number;
   unit_price: number;
   name: string;
 }
-
 interface ExistingSaleItem {
   product_id: number;
   quantity: number;
-  unit_price: number | string; // be tolerant when loading existing sales
+  unit_price: number | string;
 }
+interface MeOut { credit_card_fee_flat: number; }
 
 const toNum = (v: unknown): number => {
-  const n =
-    typeof v === "string" ? parseFloat(v) :
-    typeof v === "number" ? v :
-    Number(v as any);
+  const n = typeof v === "string" ? parseFloat(v) : typeof v === "number" ? v : Number(v as any);
   return Number.isFinite(n) ? n : 0;
 };
 
-const AddSaleForm = () => {
+export default function AddSaleForm() {
   const { saleId } = useParams();
   const isEditing = Boolean(saleId);
 
@@ -48,415 +45,299 @@ const AddSaleForm = () => {
   const [saleDate, setSaleDate] = useState("");
   const [notes, setNotes] = useState("");
   const [saleType, setSaleType] = useState("individual");
-
+  const [paymentType, setPaymentType] = useState<PaymentType>("cash");
+  const [creditCardFeeFlat, setCreditCardFeeFlat] = useState<number>(0);
   const navigate = useNavigate();
 
   const authHeaders = () => {
     const token = localStorage.getItem("token");
-    return {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    };
+    return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
   };
 
-  // ---------- Load products & categories ----------
+  // Load data
   useEffect(() => {
-    const fetchAll = async () => {
+    (async () => {
       try {
-        const [productRes, categoryRes] = await Promise.all([
-          fetch(
-            `${import.meta.env.VITE_API_URL}/products/?limit=1000&page=0&sort_by=name&order=asc`,
-            { headers: authHeaders() }
-          ),
-          fetch(`${import.meta.env.VITE_API_URL}/categories/`, {
-            headers: authHeaders(),
-          }),
+        const [productRes, categoryRes, meRes] = await Promise.all([
+          fetch(`${import.meta.env.VITE_API_URL}/products/?limit=1000&page=0&sort_by=name&order=asc`, { headers: authHeaders() }),
+          fetch(`${import.meta.env.VITE_API_URL}/categories/`, { headers: authHeaders() }),
+          fetch(`${import.meta.env.VITE_API_URL}/me`, { headers: authHeaders() }),
         ]);
-
-        if (!productRes.ok) throw new Error("Failed to load products");
-        if (!categoryRes.ok) throw new Error("Failed to load categories");
-
         const productData = await productRes.json();
         const categoryData = await categoryRes.json();
+        const meData: MeOut = await meRes.json();
 
-        setProducts((productData?.products ?? []) as Product[]);
-        setCategories((categoryData ?? []) as Category[]);
+        setProducts(productData?.products ?? []);
+        setCategories(categoryData ?? []);
+        setCreditCardFeeFlat(toNum(meData?.credit_card_fee_flat ?? 0));
       } catch (err) {
-        console.error("Failed to fetch products or categories", err);
+        console.error(err);
       }
-    };
-
-    fetchAll();
+    })();
   }, []);
 
-  // ---------- Default date for new sale ----------
+  // Default date (new sale)
   useEffect(() => {
-    if (!isEditing) {
-      setSaleDate(new Date().toISOString().split("T")[0]);
-    }
+    if (!isEditing) setSaleDate(new Date().toISOString().split("T")[0]);
   }, [isEditing]);
 
-  // ---------- Load existing sale when editing ----------
+  // Prefill edit
   useEffect(() => {
     if (!isEditing || !saleId) return;
-
-    const fetchSale = async () => {
+    const allowed: PaymentType[] = ["cash", "venmo", "check", "credit_card"];
+    (async () => {
       try {
-        const res = await fetch(`${import.meta.env.VITE_API_URL}/sales/${saleId}`, {
-          headers: authHeaders(),
-        });
-        if (!res.ok) throw new Error("Sale not found");
-
+        const res = await fetch(`${import.meta.env.VITE_API_URL}/sales/${saleId}`, { headers: authHeaders() });
         const data = await res.json();
-
-        const rawDate: string | null = data?.sale_date ?? null;
-        const normalized = rawDate
-          ? String(rawDate).split("T")[0]
-          : new Date().toISOString().split("T")[0];
+        const normalized = (data?.sale_date ? String(data.sale_date).split("T")[0] : new Date().toISOString().split("T")[0]);
         setSaleDate(normalized);
-
         setNotes(data?.notes ?? "");
         setSaleType(data?.sale_type ?? "individual");
+        const pt = String(data?.payment_type ?? "cash").toLowerCase();
+        setPaymentType((allowed as string[]).includes(pt) ? (pt as PaymentType) : "cash");
 
-        const itemDetails: SaleItem[] = (data?.items ?? []).map((item: ExistingSaleItem) => {
-          const product = products.find((p) => p.id === item.product_id);
+        const details: SaleItem[] = (data?.items ?? []).map((it: ExistingSaleItem) => {
+          const p = products.find(x => x.id === it.product_id);
           return {
-            product_id: item.product_id,
-            quantity: toNum(item.quantity),
-            unit_price: toNum(item.unit_price),
-            name: (product?.name ?? "Unnamed Product").toString(),
+            product_id: it.product_id,
+            quantity: toNum(it.quantity),
+            unit_price: toNum(it.unit_price),
+            name: (p?.name ?? "Unnamed Product").toString(),
           };
         });
-        setItems(itemDetails);
+        setItems(details);
       } catch (err) {
-        console.error("Failed to fetch sale", err);
+        console.error(err);
       }
-    };
-
-    fetchSale();
+    })();
   }, [isEditing, saleId, products]);
 
-  // ---------- Helpers ----------
+  // Helpers
   const getSalePrice = (categoryId: number | null): number => {
     if (categoryId == null) return 0;
-    const category = categories.find((cat) => cat.id === categoryId);
-    return toNum(category?.default_sale_price ?? 0);
+    const cat = categories.find(c => c.id === categoryId);
+    return toNum(cat?.default_sale_price ?? 0);
   };
-
   const displayPriceFor = (p: Product) => {
     const fallback = getSalePrice(p.category_id);
     return p.resolved_price != null ? toNum(p.resolved_price) : fallback;
   };
 
-  // ---------- UI handlers ----------
-  const handleAddProduct = (product: Product) => {
-    if (!product?.id) return;
-    if (items.find((i) => i.product_id === product.id)) return;
-
-    const price = displayPriceFor(product);
-
-    setItems((prev) => [
-      ...prev,
-      {
-        product_id: product.id,
-        name: (product.name ?? "Unnamed Product").toString(),
-        quantity: 1,
-        unit_price: Math.max(0, price),
-      },
-    ]);
+  // UI handlers
+  const addProduct = (p: Product) => {
+    if (!p?.id) return;
+    if (items.find(i => i.product_id === p.id)) return;
+    setItems(prev => [...prev, {
+      product_id: p.id,
+      name: (p.name ?? "Unnamed Product").toString(),
+      quantity: 1,
+      unit_price: Math.max(0, displayPriceFor(p)),
+    }]);
   };
-
-  const handleQuantityChange = (productId: number, qtyInput: number) => {
-    const qty = Number.isFinite(qtyInput) ? qtyInput : 0;
-    setItems((prev) =>
-      prev.map((item) =>
-        item.product_id === productId
-          ? { ...item, quantity: Math.max(0, qty) }
-          : item
-      )
-    );
+  const setQty = (productId: number, qty: number) =>
+    setItems(prev => prev.map(i => i.product_id === productId ? { ...i, quantity: Math.max(0, qty) } : i));
+  const setPrice = (productId: number, value: string) => {
+    const num = toNum(value);
+    setItems(prev => prev.map(i => i.product_id === productId ? { ...i, unit_price: Math.max(0, parseFloat(num.toFixed(2))) } : i));
   };
+  const removeLine = (productId: number) =>
+    setItems(prev => prev.filter(i => i.product_id !== productId));
 
-  const handlePriceChange = (productId: number, priceInput: string) => {
-    const num = toNum(priceInput);
-    setItems((prev) =>
-      prev.map((item) =>
-        item.product_id === productId
-          ? { ...item, unit_price: Math.max(0, parseFloat(num.toFixed(2))) }
-          : item
-      )
-    );
-  };
-
-  const handleRemove = (productId: number) => {
-    setItems((prev) => prev.filter((item) => item.product_id !== productId));
-  };
-
-  const handleSubmit = async () => {
-    if (items.length === 0) {
-      alert("Please add at least one product to the sale.");
-      return;
-    }
-
-    const payload = {
-      sale_date: saleDate || null,
-      notes: notes || null,
-      sale_type: saleType,
-      items: items.map(({ product_id, quantity, unit_price }) => ({
-        product_id,
-        quantity: toNum(quantity),
-        unit_price: toNum(unit_price),
-      })),
-    };
-
-    const method = isEditing ? "PUT" : "POST";
-    const url = isEditing
-      ? `${import.meta.env.VITE_API_URL}/sales/${saleId}`
-      : `${import.meta.env.VITE_API_URL}/sales/`;
-
-    try {
-      const res = await fetch(url, {
-        method,
-        headers: authHeaders(),
-        body: JSON.stringify(payload),
-      });
-
-      if (res.ok) {
-        navigate("/sales");
-      } else {
-        const errorData = await res.json().catch(() => ({}));
-        alert(errorData?.detail || "Failed to save sale.");
-      }
-    } catch (e) {
-      console.error("Save sale failed", e);
-      alert("Failed to save sale.");
-    }
-  };
-
-  // ---------- Filtering (defensive) ----------
+  // Filtering
   const filteredProducts = useMemo(() => {
-    const term = (searchTerm || "").toLowerCase();
-    return products.filter((p) => {
+    const q = (searchTerm || "").toLowerCase();
+    return products.filter(p => {
       const name = (p.name ?? "").toString().toLowerCase();
-      const inText = term ? name.includes(term) : true;
-
+      const inText = q ? name.includes(q) : true;
       if (selectedCategoryId === "All") return inText;
       const catId = Number(selectedCategoryId);
       return inText && Number.isFinite(catId) && p.category_id === catId;
     });
   }, [products, searchTerm, selectedCategoryId]);
 
-  const total = useMemo(
-    () =>
-      items.reduce(
-        (sum, i) => sum + toNum(i.quantity) * toNum(i.unit_price),
-        0
-      ),
-    [items]
-  );
+  // Totals (+ card fee)
+  const subtotal = useMemo(() => items.reduce((s, i) => s + toNum(i.quantity) * toNum(i.unit_price), 0), [items]);
+  const cardFee = useMemo(() => (paymentType === "credit_card" ? Math.max(0, toNum(creditCardFeeFlat)) : 0), [paymentType, creditCardFeeFlat]);
+  const grandTotal = useMemo(() => subtotal + cardFee, [subtotal, cardFee]);
 
-  const selectedCategoryPrice = useMemo(() => {
-    if (selectedCategoryId === "All") return null;
-    const idNum = Number(selectedCategoryId);
-    if (!Number.isFinite(idNum)) return null;
-    return getSalePrice(idNum);
-  }, [selectedCategoryId, categories]);
+  // Submit
+  const handleSubmit = async () => {
+    if (items.length === 0) return alert("Please add at least one product.");
+    const payload = {
+      sale_date: saleDate || null,
+      notes: notes || null,
+      sale_type: saleType || "individual",
+      payment_type: paymentType,
+      items: items.map(i => ({ product_id: i.product_id, quantity: i.quantity, unit_price: i.unit_price })),
+    };
+    try {
+      const url = `${import.meta.env.VITE_API_URL}/sales${isEditing ? `/${saleId}` : ""}`;
+      const res = await fetch(url, {
+        method: isEditing ? "PUT" : "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("Save failed");
+      navigate("/sales");
+    } catch (e) {
+      alert("There was a problem saving this sale.");
+    }
+  };
+
+  const disabled = items.length === 0;
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6">
-      <h1 className="text-3xl font-bold mb-6 text-blue-800">
-        {isEditing ? "✏️ Edit Sale" : "🧾 New Sale"}
-      </h1>
-
-      {/* Sale Details */}
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-6 shadow-sm space-y-4">
-        <h2 className="text-lg font-semibold text-blue-800">Sale Details</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-          <div>
-            <label className="block text-sm font-semibold text-blue-700 mb-1">Sale Date</label>
-            <input
-              type="date"
-              value={saleDate}
-              onChange={(e) => setSaleDate(e.target.value)}
-              className="w-full border border-blue-300 px-3 py-2 rounded-md shadow-inner"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-semibold text-blue-700 mb-1">Sale Type</label>
-            <select
-              value={saleType}
-              onChange={(e) => setSaleType(e.target.value)}
-              className="w-full border border-blue-300 px-3 py-2 rounded-md shadow-inner"
-            >
-              <option value="individual">Individual Customer</option>
-              <option value="batch-daily">Daily Summary</option>
-              <option value="batch-weekly">Weekly Summary</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-semibold text-blue-700 mb-1">Notes</label>
-            <input
-              type="text"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Optional (e.g., 'Week of July 1')"
-              className="w-full border border-blue-300 px-3 py-2 rounded-md shadow-inner"
-            />
-          </div>
+    <div className="space-y-6">
+      {/* Title bar */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">{isEditing ? "Edit Sale" : "New Sale"}</h1>
+          <p className="text-sm text-slate-500">Build a sale by adding products. Clean new look, same behavior.</p>
         </div>
-      </div>
-
-      {/* Product Search & Categories */}
-      <div className="bg-white p-4 rounded-lg shadow-sm border mb-6 space-y-4">
-        <div className="flex flex-col sm:flex-row items-center gap-4">
-          <input
-            type="text"
-            placeholder="🔍 Search products..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="flex-1 border border-gray-300 px-4 py-2 rounded-md shadow-sm w-full sm:w-auto"
-          />
-          <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={() => setSelectedCategoryId("All")}
-              className={`px-3 py-1 rounded-md border text-sm font-medium ${
-                selectedCategoryId === "All"
-                  ? "bg-blue-600 text-white border-blue-600"
-                  : "bg-white text-gray-700 hover:bg-gray-100"
-              }`}
-            >
-              All
-            </button>
-            {categories.map((category) => (
-              <button
-                key={category.id}
-                onClick={() => setSelectedCategoryId(category.id)}
-                className={`px-3 py-1 rounded-md border text-sm font-medium ${
-                  selectedCategoryId === category.id
-                    ? "bg-blue-600 text-white border-blue-600"
-                    : "bg-white text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                {category.name}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {selectedCategoryPrice !== null && (
-          <p className="text-sm text-gray-600">
-            Sale price for this category:{" "}
-            <span className="font-semibold text-blue-700">
-              ${toNum(selectedCategoryPrice).toFixed(2)}
-            </span>
-          </p>
-        )}
-      </div>
-
-      {/* Product Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-6 max-h-96 overflow-y-auto">
-        {filteredProducts.length > 0 ? (
-          filteredProducts.map((product) => (
-            <button
-              key={product.id}
-              onClick={() => handleAddProduct(product)}
-              className="bg-white border rounded-lg p-3 text-left shadow-sm hover:shadow-md hover:border-blue-400 transition"
-            >
-              <div className="font-semibold text-gray-800">
-                {(product.name ?? "Unnamed Product").toString()}
-              </div>
-              <div className="text-xs text-gray-600 mt-1">
-                ${toNum(displayPriceFor(product)).toFixed(2)}
-              </div>
-              <div className="text-xs text-gray-400 italic mt-1">Click to add</div>
-            </button>
-          ))
-        ) : (
-          <p className="text-sm text-gray-500 col-span-full">
-            No products match your search and category.
-          </p>
-        )}
-      </div>
-
-      {/* Selected Items */}
-      {items.length > 0 ? (
-        <div className="space-y-4 mb-6">
-          {items.map((item) => (
-            <div
-              key={item.product_id}
-              className="bg-white border rounded-lg p-4 shadow-sm space-y-3"
-            >
-              <div className="flex justify-between items-center">
-                <h3 className="font-semibold text-gray-800">{item.name}</h3>
-                <button
-                  onClick={() => handleRemove(item.product_id)}
-                  className="text-red-600 text-sm hover:underline"
-                >
-                  Remove
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center text-sm">
-                <div className="flex items-center gap-2">
-                  <label className="text-gray-600 w-20">Quantity:</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={toNum(item.quantity)}
-                    onChange={(e) =>
-                      handleQuantityChange(item.product_id, toNum(e.target.value))
-                    }
-                    className="border px-2 py-1 w-24 rounded-md"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <label className="text-gray-600 w-20">Unit Price:</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={toNum(item.unit_price).toFixed(2)}
-                    onChange={(e) => handlePriceChange(item.product_id, e.target.value)}
-                    className="border px-2 py-1 w-28 rounded-md"
-                  />
-                </div>
-
-                <div className="ml-auto sm:ml-0 text-right sm:text-left font-medium text-blue-700">
-                  Line Total: $
-                  {(toNum(item.unit_price) * toNum(item.quantity)).toFixed(2)}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="text-sm text-gray-500 mb-6">No items selected yet.</p>
-      )}
-
-      {/* Total & Actions */}
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6">
-        <div className="text-2xl font-bold text-gray-800">
-          Total: <span className="text-blue-700">${toNum(total).toFixed(2)}</span>
-        </div>
-        <div className="flex gap-3">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => navigate("/sales")}
-            className="px-5 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100"
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50"
           >
             Cancel
           </button>
           <button
+            disabled={disabled}
             onClick={handleSubmit}
-            className="px-5 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow"
+            className={`rounded-lg px-4 py-2 text-sm text-white ${disabled ? "bg-slate-300" : "bg-blue-600 hover:bg-blue-700"}`}
           >
-            {isEditing ? "Save Changes" : "Submit Sale"}
+            {isEditing ? "Save Changes" : "Create Sale"}
           </button>
         </div>
       </div>
+
+      {/* Form Card */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Left: product picker */}
+        <section className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <header className="sticky top-[4.5rem] z-10 flex items-center gap-3 border-b border-slate-200 bg-white/80 p-4 backdrop-blur">
+            <input
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Search products…"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+            />
+            <select
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={selectedCategoryId}
+              onChange={e => setSelectedCategoryId(e.target.value as any)}
+            >
+              <option value="All">All categories</option>
+              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </header>
+          <div className="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            {filteredProducts.map(p => (
+              <button
+                key={p.id}
+                onClick={() => addProduct(p)}
+                className="group text-left rounded-xl border border-slate-200 bg-white p-4 hover:border-blue-300 hover:shadow"
+              >
+                <div className="font-medium">{p.name}</div>
+                <div className="mt-1 text-sm text-slate-500">Default price: ${displayPriceFor(p).toFixed(2)}</div>
+                <div className="mt-3 text-xs text-blue-700 opacity-0 group-hover:opacity-100 transition">Click to add</div>
+              </button>
+            ))}
+            {filteredProducts.length === 0 && (
+              <div className="col-span-full rounded-lg border border-dashed border-slate-300 p-8 text-center text-slate-500">
+                No products match your filter.
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Right: sale meta + lines */}
+        <aside className="space-y-6">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <h2 className="font-semibold">Sale details</h2>
+            <div className="mt-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-sm text-slate-600">Date</label>
+                <input type="date" value={saleDate} onChange={e => setSaleDate(e.target.value)}
+                  className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-sm text-slate-600">Sale type</label>
+                <select value={saleType} onChange={e => setSaleType(e.target.value)}
+                  className="w-40 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="individual">Individual</option>
+                  <option value="batch-daily">Batch - Daily</option>
+                  <option value="batch-weekly">Batch - Weekly</option>
+                </select>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-sm text-slate-600">Payment</label>
+                <select value={paymentType} onChange={e => setPaymentType(e.target.value as PaymentType)}
+                  className="w-40 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="cash">Cash</option>
+                  <option value="venmo">Venmo</option>
+                  <option value="check">Check</option>
+                  <option value="credit_card">Credit Card</option>
+                </select>
+              </div>
+              <textarea
+                className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Notes (optional)"
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <h2 className="font-semibold mb-3">Line items</h2>
+            <div className="space-y-3">
+              {items.map(line => (
+                <div key={line.product_id} className="rounded-xl border border-slate-200 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-medium">{line.name}</div>
+                    <button onClick={() => removeLine(line.product_id)} className="text-sm text-slate-500 hover:text-red-600">Remove</button>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Quantity</label>
+                      <input type="number" min={0} value={line.quantity}
+                        onChange={e => setQty(line.product_id, Number(e.target.value))}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Unit price</label>
+                      <input value={line.unit_price} onChange={e => setPrice(line.product_id, e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div className="flex flex-col justify-end text-right text-sm">
+                      <div className="text-slate-500">Line total</div>
+                      <div className="font-semibold">${(line.quantity * line.unit_price).toFixed(2)}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {items.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-slate-500">No items yet.</div>}
+            </div>
+
+            <div className="mt-4 space-y-1 border-t border-slate-200 pt-4 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-600">Subtotal</span>
+                <span className="font-medium">${subtotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Card fee</span>
+                <span className="font-medium">${cardFee.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-lg font-semibold">
+                <span>Total</span>
+                <span>${grandTotal.toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
     </div>
   );
-};
-
-export default AddSaleForm;
+}
