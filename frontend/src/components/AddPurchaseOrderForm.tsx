@@ -12,20 +12,31 @@ function apiUrl(path: string) {
   return clean ? `${clean}${path}` : path;
 }
 
-interface Product { id: number; name: string; category_id: number; }
-interface PurchaseTier { threshold: number; price: number; }
+interface Product {
+  id: number;
+  name: string;
+  category_id: number;
+}
+
+interface PurchaseTier {
+  threshold: number;
+  price: number;
+}
+
 interface Category {
   id: number;
   name: string;
   base_purchase_price: number;
   purchase_tiers: PurchaseTier[];
 }
+
 interface PurchaseOrderItemDTO {
   product_id: number;
   quantity: number;
   unit_cost: number;
   product?: { id: number; name: string; category?: { id: number } };
 }
+
 interface PurchaseOrderDTO {
   id: number;
   created_at: string;
@@ -43,16 +54,18 @@ export default function AddPurchaseOrderForm() {
   const isEdit = Boolean(routeId);
   const navigate = useNavigate();
 
-  const [poId, setPoId] = useState<string | null>(routeId ?? null); // <-- used by Cancel
+  const [poId, setPoId] = useState<string | null>(routeId ?? null); // used by Cancel
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(
+    null
+  );
 
   // product_id -> qty (numeric)
   const [orderItems, setOrderItems] = useState<Record<number, number>>({});
   // product_id -> current text in Qty input (to allow "" while focused)
   const [qtyDrafts, setQtyDrafts] = useState<Record<number, string>>({});
-  // product_id -> unit override string
+  // product_id -> unit override string (draft text)
   const [overrides, setOverrides] = useState<Record<number, string>>({});
 
   const [orderDate, setOrderDate] = useState("");
@@ -60,17 +73,19 @@ export default function AddPurchaseOrderForm() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [prefillLoading, setPrefillLoading] = useState<boolean>(false);
 
-  // Unified input sizing; tabular figures for perfect column alignment
+  // Input styles
   const inputBase =
     "h-10 w-full rounded-lg border border-slate-300 px-2 text-sm leading-none focus:outline-none focus:ring-2 focus:ring-blue-500";
   const numberBase = `${inputBase} tabular-nums [appearance:textfield]`;
-  const qtyNumberBase = `${numberBase} text-right`;
-  const unitNumberBase = `${numberBase} text-right`; // Unit right-aligned, same width as Qty
+  // Center numeric inputs so values sit in the middle of the box
+  const qtyNumberBase = `${numberBase} text-center`;
+  const unitNumberBase = `${numberBase} text-center`;
 
-  // Single grid template for header + rows (no wrapping; scroll if needed)
-  // product (grows) | qty (9rem) | unit (9rem) | subtotal (10rem)
-  const gridTemplate = "[grid-template-columns:minmax(18rem,1fr)_9rem_9rem_10rem]";
+  // product | qty | unit price | subtotal
+  const gridTemplate =
+    "[grid-template-columns:minmax(18rem,1fr)_8rem_9rem_10rem]";
 
+  // Load products + categories
   useEffect(() => {
     (async () => {
       try {
@@ -93,6 +108,7 @@ export default function AddPurchaseOrderForm() {
             price: Number(t.price),
           })),
         })) as Category[];
+
         setCategories(cats);
 
         if (selectedCategoryId == null && cats[0]) {
@@ -106,34 +122,44 @@ export default function AddPurchaseOrderForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Prefill (edit)
+  // Prefill edit mode
   useEffect(() => {
     if (!isEdit || !routeId) return;
     setPrefillLoading(true);
+
     api
       .get<PurchaseOrderDTO>(apiUrl(`/purchase_orders/${routeId}`))
       .then((res) => {
         const po = res.data;
-        // keep the ID we got back (most reliable for Cancel)
         setPoId(String(po.id));
 
         const d = new Date(po.created_at);
-        const yyyyMmDd = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+        const yyyyMmDd = new Date(
+          d.getTime() - d.getTimezoneOffset() * 60000
+        )
           .toISOString()
           .slice(0, 10);
-
         setOrderDate(yyyyMmDd);
-        setShippingHandling(
-          typeof po.shipping_cost === "number" ? String(po.shipping_cost) : ""
-        );
 
-        const next: Record<number, number> = {};
+        // Combine shipping + handling if both exist
+        const s = (po.shipping_cost ?? 0) + (po.handling_cost ?? 0);
+        setShippingHandling(s ? String(s) : "");
+
+        const nextOrderItems: Record<number, number> = {};
+        const nextOverrides: Record<number, string> = {};
+
         (po.items || []).forEach((it) => {
-          if (typeof it.product_id === "number") next[it.product_id] = it.quantity || 0;
+          if (typeof it.product_id === "number") {
+            nextOrderItems[it.product_id] = it.quantity || 0;
+            if (typeof it.unit_cost === "number") {
+              nextOverrides[it.product_id] = String(it.unit_cost);
+            }
+          }
         });
-        setOrderItems(next);
+
+        setOrderItems(nextOrderItems);
         setQtyDrafts({});
-        setOverrides({});
+        setOverrides(nextOverrides);
 
         // pick category from first item's product if possible
         const firstPid = po.items?.[0]?.product_id;
@@ -142,7 +168,9 @@ export default function AddPurchaseOrderForm() {
           if (prod?.category_id != null) setSelectedCategoryId(prod.category_id);
         }
       })
-      .catch(() => setErrorMessage("Failed to load purchase order for editing."))
+      .catch(() =>
+        setErrorMessage("Failed to load purchase order for editing.")
+      )
       .finally(() => setPrefillLoading(false));
   }, [isEdit, routeId, products]);
 
@@ -185,7 +213,9 @@ export default function AddPurchaseOrderForm() {
     }
     return price;
   };
+
   const getDefaultDisplayUnit = (p: Product) => getCategoryUnitPrice(p.category_id);
+
   const getUnitPriceForProduct = (p: Product) => {
     const raw = overrides[p.id];
     if (raw != null && raw !== "") {
@@ -194,11 +224,16 @@ export default function AddPurchaseOrderForm() {
     }
     return getDefaultDisplayUnit(p);
   };
+
   const getNextTierInfo = (catId: number) => {
     const tiers = sortedTiersCache.get(catId) || [];
     for (const t of tiers) {
       if (totalUnits < t.threshold)
-        return { needed: t.threshold - totalUnits, nextPrice: t.price, nextQty: t.threshold };
+        return {
+          needed: t.threshold - totalUnits,
+          nextPrice: t.price,
+          nextQty: t.threshold,
+        };
     }
     return null;
   };
@@ -224,6 +259,7 @@ export default function AddPurchaseOrderForm() {
 
   const clearAllOverrides = () => setOverrides({});
 
+  // Items subtotal (all items, across categories)
   const itemsSubtotal = useMemo(
     () =>
       Object.entries(orderItems).reduce((sum, [idStr, qty]) => {
@@ -233,8 +269,32 @@ export default function AddPurchaseOrderForm() {
         const u = getUnitPriceForProduct(p);
         return sum + (Number(qty) || 0) * u;
       }, 0),
-    [orderItems, products]
+    [orderItems, products, overrides, categories, totalUnits]
   );
+
+  // Per-category totals (items only, no shipping)
+  const categoryTotals = useMemo(() => {
+    const totals: Record<number, number> = {};
+
+    for (const [idStr, qty] of Object.entries(orderItems)) {
+      const qtyNum = Number(qty) || 0;
+      if (qtyNum <= 0) continue;
+
+      const idNum = Number(idStr);
+      const p = products.find((x) => x.id === idNum);
+      if (!p) continue;
+
+      const unitPrice = getUnitPriceForProduct(p);
+      const lineTotal = qtyNum * unitPrice;
+
+      if (!totals[p.category_id]) {
+        totals[p.category_id] = 0;
+      }
+      totals[p.category_id] += lineTotal;
+    }
+
+    return totals;
+  }, [orderItems, products, overrides, categories, totalUnits]);
 
   const grandTotal = itemsSubtotal + (Number(shippingHandling) || 0);
 
@@ -255,6 +315,7 @@ export default function AddPurchaseOrderForm() {
           };
         }),
     };
+
     try {
       const url = apiUrl(`/purchase_orders${isEdit ? `/${routeId}` : ""}`);
       const { status, data } = await api[isEdit ? "put" : "post"](url, payload, {
@@ -270,21 +331,17 @@ export default function AddPurchaseOrderForm() {
     }
   };
 
-  // Cancel (always works in edit using the actual loaded poId)
+  // Cancel
   const cancel = () => {
-  // In edit mode, navigate back WITHOUT confirm (browser dialogs can be suppressed)
-  if (isEdit) {
-    const backId = poId ?? routeId; // use the loaded PO id first
-    if (backId) navigate(`/purchase-orders/${backId}`);
-    else navigate(-1); // fallback
-    return;
-  }
-
-  // In create mode, keep a confirm (optional)
-  if (dirty && !window.confirm("Discard changes?")) return;
-  navigate("/purchase-orders");
-};
-
+    if (isEdit) {
+      const backId = poId ?? routeId;
+      if (backId) navigate(`/purchase-orders/${backId}`);
+      else navigate(-1);
+      return;
+    }
+    if (dirty && !window.confirm("Discard changes?")) return;
+    navigate("/purchase-orders");
+  };
 
   return (
     <div className="space-y-6">
@@ -331,7 +388,9 @@ export default function AddPurchaseOrderForm() {
             <select
               value={selectedCategoryId ?? ""}
               onChange={(e) =>
-                setSelectedCategoryId(e.target.value ? Number(e.target.value) : null)
+                setSelectedCategoryId(
+                  e.target.value ? Number(e.target.value) : null
+                )
               }
               className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
@@ -355,32 +414,40 @@ export default function AddPurchaseOrderForm() {
 
           <div className="p-4">
             <div className="overflow-x-auto">
-              {/* Header row — note px-3 matches row px to keep perfect alignment */}
+              {/* Header row */}
               <div
                 className={`grid ${gridTemplate} min-w-[700px] px-3 text-xs font-semibold text-slate-500`}
               >
                 <div>Product</div>
-                <div className="text-right">Qty</div>
-                <div className="text-right">Unit</div>
-                <div className="text-right">Subtotal</div>
+                {/* Center all numeric headers */}
+                <div className="text-center">Qty</div>
+                <div className="text-center">Unit Price</div>
+                <div className="text-center">Subtotal</div>
               </div>
 
               {/* Item rows */}
               <div className="mt-2 space-y-2 min-w-[700px]">
                 {visibleProducts.map((p) => {
                   const qtyNum = orderItems[p.id] || 0;
-                  const qtyText =
-                    Object.prototype.hasOwnProperty.call(qtyDrafts, p.id)
-                      ? qtyDrafts[p.id]
-                      : String(qtyNum);
+                  const qtyText = Object.prototype.hasOwnProperty.call(
+                    qtyDrafts,
+                    p.id
+                  )
+                    ? qtyDrafts[p.id]
+                    : String(qtyNum);
 
                   const unit = getUnitPriceForProduct(p);
-                  const isOverridden = overrides[p.id] != null && overrides[p.id] !== "";
 
-                  // keep unit input tight on the right; only add extra padding if the reset button shows
+                  const hasOverrideKey =
+                    Object.prototype.hasOwnProperty.call(overrides, p.id);
+                  const unitDraft = hasOverrideKey
+                    ? overrides[p.id]
+                    : String(unit ?? "");
+                  const isOverridden = hasOverrideKey;
+
                   const unitInputClass = `${unitNumberBase} ${
-                    isOverridden ? "pr-7" : "pr-2"
-                  } pl-2`;
+                    isOverridden ? "pr-8" : ""
+                  }`;
 
                   return (
                     <div
@@ -392,7 +459,7 @@ export default function AddPurchaseOrderForm() {
                         <div className="truncate font-medium">{p.name}</div>
                       </div>
 
-                      {/* Qty — clears to "" on focus if currently 0 */}
+                      {/* Qty */}
                       <div>
                         <input
                           type="number"
@@ -403,18 +470,26 @@ export default function AddPurchaseOrderForm() {
                               ...prev,
                               [p.id]: qtyNum === 0 ? "" : String(qtyNum),
                             }));
-                            requestAnimationFrame(() => e.currentTarget.select());
+                            requestAnimationFrame(() =>
+                              e.currentTarget.select()
+                            );
                           }}
                           onChange={(e) => {
                             const v = e.target.value;
                             setQtyDrafts((prev) => ({ ...prev, [p.id]: v }));
                             const n = Number(v);
-                            updateQuantity(p.id, Number.isFinite(n) ? Math.max(0, n) : 0);
+                            updateQuantity(
+                              p.id,
+                              Number.isFinite(n) ? Math.max(0, n) : 0
+                            );
                           }}
                           onBlur={() => {
                             setQtyDrafts((prev) => {
                               const next = { ...prev };
-                              if (next[p.id] == null || next[p.id].trim() === "") {
+                              if (
+                                next[p.id] == null ||
+                                next[p.id].trim() === ""
+                              ) {
                                 delete next[p.id];
                                 updateQuantity(p.id, 0);
                               }
@@ -426,11 +501,13 @@ export default function AddPurchaseOrderForm() {
                         />
                       </div>
 
-                      {/* Unit (right-aligned & same width as Qty) */}
+                      {/* Unit Price */}
                       <div>
                         <div className="relative">
                           <input
-                            value={isOverridden ? overrides[p.id] : unit}
+                            type="number"
+                            step="any"
+                            value={unitDraft}
                             onChange={(e) => setOverride(p.id, e.target.value)}
                             className={unitInputClass}
                             aria-label={`Unit price for ${p.name}`}
@@ -448,13 +525,14 @@ export default function AddPurchaseOrderForm() {
                         </div>
                       </div>
 
-                      {/* Subtotal (no wrap) */}
-                      <div className="text-right text-sm font-semibold tabular-nums whitespace-nowrap">
+                      {/* Subtotal */}
+                      <div className="text-center text-sm font-semibold tabular-nums whitespace-nowrap">
                         {money((Number(qtyNum) || 0) * (Number(unit) || 0))}
                       </div>
                     </div>
                   );
                 })}
+
                 {visibleProducts.length === 0 && (
                   <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center text-slate-500">
                     No products in this category.
@@ -493,7 +571,9 @@ export default function AddPurchaseOrderForm() {
                 />
               </div>
               <div className="flex items-center justify-between gap-3">
-                <label className="text-sm text-slate-600">Shipping + Handling</label>
+                <label className="text-sm text-slate-600">
+                  Shipping + Handling
+                </label>
                 <input
                   value={shippingHandling}
                   onChange={(e) => setShippingHandling(e.target.value)}
@@ -521,6 +601,28 @@ export default function AddPurchaseOrderForm() {
                 <span>{money(grandTotal)}</span>
               </div>
             </div>
+
+            {/* Category totals (only show categories that have at least one purchased product) */}
+            {Object.keys(categoryTotals).length > 0 && (
+              <div className="mt-4 border-t border-slate-200 pt-3 text-xs text-slate-600 space-y-1">
+                <div className="font-semibold text-slate-700">
+                  Totals by category
+                </div>
+                {categories
+                  .filter(
+                    (c) =>
+                      categoryTotals[c.id] != null && categoryTotals[c.id] > 0
+                  )
+                  .map((c) => (
+                    <div key={c.id} className="flex justify-between">
+                      <span>{c.name}</span>
+                      <span className="font-medium">
+                        {money(categoryTotals[c.id] || 0)}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            )}
           </div>
         </aside>
       </div>
