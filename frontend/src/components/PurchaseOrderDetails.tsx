@@ -37,6 +37,7 @@ export default function PurchaseOrderDetails() {
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
   const [po, setPo] = useState<PurchaseOrder | null>(null);
+  const [displayNumber, setDisplayNumber] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -51,10 +52,30 @@ export default function PurchaseOrderDetails() {
       try {
         setLoading(true);
         setErr(null);
-        const { data } = await api.get<PurchaseOrder>(
-          apiUrl(`/purchase_orders/${id}`)
+        const [detailResponse, listResponse] = await Promise.all([
+          api.get<PurchaseOrder>(apiUrl(`/purchase_orders/${id}`)),
+          api.get<PurchaseOrder[]>(apiUrl("/purchase_orders/")),
+        ]);
+
+        if (!alive) return;
+
+        const currentOrder = detailResponse.data;
+        setPo(currentOrder);
+
+        const allOrders = Array.isArray(listResponse.data)
+          ? [...listResponse.data]
+          : [];
+
+        allOrders.sort((a, b) => {
+          const dateDiff =
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+          return dateDiff !== 0 ? dateDiff : a.id - b.id;
+        });
+
+        const position = allOrders.findIndex(
+          (order) => order.id === currentOrder.id
         );
-        if (alive) setPo(data);
+        setDisplayNumber(position >= 0 ? position + 1 : null);
       } catch (e: any) {
         const msg =
           e?.response?.data?.detail ||
@@ -136,7 +157,7 @@ export default function PurchaseOrderDetails() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
-            Purchase Order #{po.id}
+            Purchase Order #{displayNumber ?? "—"}
           </h1>
           <p className="text-sm text-slate-600">
             Date: {new Date(po.created_at).toLocaleDateString()}

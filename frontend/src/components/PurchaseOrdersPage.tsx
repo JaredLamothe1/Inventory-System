@@ -50,6 +50,18 @@ export default function PurchaseOrdersPage() {
     return () => { alive = false; };
   }, []);
 
+  // Display numbers are chronological positions, not database IDs.
+  // They automatically close gaps when an order is deleted.
+  const chronologicalNumberById = useMemo(() => {
+    const ordered = [...orders].sort((a, b) => {
+      const dateDiff =
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      return dateDiff !== 0 ? dateDiff : a.id - b.id;
+    });
+
+    return new Map(ordered.map((po, index) => [po.id, index + 1]));
+  }, [orders]);
+
   const filtered = useMemo(() => {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
     const start = fromDate ? new Date(fromDate + "T00:00:00") : null;
@@ -61,13 +73,14 @@ export default function PurchaseOrdersPage() {
       if (words.length === 0) return true;
       const hay = [
         dateOnly(po.created_at),
+        String(chronologicalNumberById.get(po.id) ?? ""),
         String(po.id),
         ...(po.items ?? []).map(it => it.product_name || ""),
         ...(po.items ?? []).map(it => it.category_name || ""),
       ].join(" ").toLowerCase();
       return words.every(w => hay.includes(w));
     });
-  }, [orders, query, fromDate, toDate]);
+  }, [orders, query, fromDate, toDate, chronologicalNumberById]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -99,7 +112,7 @@ export default function PurchaseOrdersPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Purchase Orders</h1>
-          <p className="text-sm text-slate-500">Filter by text or date. Sort by date, units, lines, or grand total.</p>
+          <p className="text-sm text-slate-500">Purchase order numbers follow chronological order and automatically close gaps after deletions.</p>
         </div>
         <button onClick={() => nav("/purchase-orders/new")} className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700">+ New PO</button>
       </div>
@@ -134,6 +147,7 @@ export default function PurchaseOrdersPage() {
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-left">
             <tr>
+              <th className="px-4 py-3">PO #</th>
               <th className="px-4 py-3">
                 <button type="button" className="inline-flex items-center gap-1 hover:underline" onClick={() => toggleSort("date")}>
                   Date {sortKey === "date" && <span>{sortDir === "asc" ? "↑" : "↓"}</span>}
@@ -162,6 +176,9 @@ export default function PurchaseOrdersPage() {
               const t = totals(po);
               return (
                 <tr key={po.id} className="border-t">
+                  <td className="px-4 py-3 font-medium">
+                    #{chronologicalNumberById.get(po.id) ?? "—"}
+                  </td>
                   <td className="px-4 py-3">{dateOnly(po.created_at)}</td>
                   <td className="px-4 py-3">{t.units}</td>
                   <td className="px-4 py-3">{t.lines}</td>
@@ -174,7 +191,7 @@ export default function PurchaseOrdersPage() {
             })}
             {paged.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-slate-500">No purchase orders found.</td>
+                <td colSpan={6} className="px-4 py-6 text-center text-slate-500">No purchase orders found.</td>
               </tr>
             )}
           </tbody>
