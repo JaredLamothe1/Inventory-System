@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import asc, desc
+from sqlalchemy import asc, desc, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import SessionLocal
@@ -18,11 +18,14 @@ from app.routes.auth import get_current_user
 from app.schemas.product import ProductCreate, ProductUpdate, ProductOut
 from app.services.pricing import resolve_sale_price
 
+
 router = APIRouter(prefix="/products", tags=["products"])
 
-# -------------------------
+
+# -------------------------------------------------------------------
 # Dependencies
-# -------------------------
+# -------------------------------------------------------------------
+
 def get_db():
     db = SessionLocal()
     try:
@@ -30,121 +33,236 @@ def get_db():
     finally:
         db.close()
 
-# -------------------------
-# Enums & Response Models
-# -------------------------
+
+# -------------------------------------------------------------------
+# Enums / response models
+# -------------------------------------------------------------------
+
 class SortBy(str, Enum):
     name = "name"
     quantity_in_stock = "quantity_in_stock"
     sku = "sku"
 
+
 class Order(str, Enum):
     asc = "asc"
     desc = "desc"
+
 
 class ProductListResponse(BaseModel):
     products: List[ProductOut]
     total_pages: int
 
-# -------------------------
+
+# -------------------------------------------------------------------
 # Helpers
-# -------------------------
-def _safe_qty(n):
-    # Guard any weirdness; keep int, never negative
-    try:
-        return max(0, int(n or 0))
-    except Exception:
-        return 0
+# -------------------------------------------------------------------
 
 def to_out(p: Product) -> ProductOut:
-    # IMPORTANT: fix the value BEFORE calling from_orm()
-    if getattr(p, "quantity_in_stock", None) is not None:
-        fixed = _safe_qty(p.quantity_in_stock)
-        if fixed != p.quantity_in_stock:
-            p.quantity_in_stock = fixed
+    """
+    Convert a Product ORM object into the API response model.
 
-    out = ProductOut.from_orm(p)
+    quantity_in_stock is intentionally NOT clamped to zero.
+    Negative inventory is valid and represents oversold/backordered stock.
+    """
+    out = ProductOut.model_validate(p)
 
-    # computed fields
     out.inherits_sale_price = p.sale_price is None
     out.inherits_purchase_cost = p.unit_cost is None
     out.resolved_price = resolve_sale_price(p)
+
     out.collections = [
-        {"id": c.id, "name": c.name, "color": c.color} for c in getattr(p, "collections", [])
+        {
+            "id": collection.id,
+            "name": collection.name,
+            "color": collection.color,
+        }
+        for collection in getattr(p, "collections", [])
     ]
+
     out.notes = p.notes
-    return out  # type: ignore
+
+    return out
+
 
 def _attach_collections(
-    product: Product, collection_ids: List[int], db: Session, user_id: int
+    product: Product,
+    collection_ids: List[int],
+    db: Session,
+    user_id: int,
 ):
+    """
+    Replace the product's collection memberships.
+
+    Every requested collection must belong to the current user.
+    """
     if collection_ids is None:
         return
+
     if not collection_ids:
         product.collections.clear()
         return
 
-    cols = (
+    unique_ids = set(collection_ids)
+
+    collections = (
         db.query(ProductCollection)
         .filter(
             ProductCollection.user_id == user_id,
-            ProductCollection.id.in_(collection_ids),
+            ProductCollection.id.in_(unique_ids),
         )
         .all()
     )
-    if len(cols) != len(set(collection_ids)):
+
+    if len(collections) != len(unique_ids):
         raise HTTPException(
             status_code=400,
             detail="One or more collections not found or not yours.",
         )
-    product.collections = cols
 
-# -------------------------
-# Routes
-# -------------------------
+    product.collections = collections
+
+
+# -------------------------------------------------------------------
+# List / search products
+# -------------------------------------------------------------------
+
 @router.get("/", response_model=ProductListResponse)
 def list_products(
     page: int = Query(0, ge=0),
-    limit: int = Query(25, le=1000),
+    limit: int = Query(25, ge=1, le=1000),
     sort_by: SortBy = Query(SortBy.name),
     order: Order = Query(Order.asc),
-    category_id: Optional[int] = None,
+    search: Optional[str] = Query(
+        None,
+        description="Search product name, SKU, or description.",
+    ),
+    category_id: Optional[int] = Query(None),
     collection_id: Optional[int] = Query(
-        None, description="Filter by a single collection id"
+        None,
+        description="Filter by a single collection id.",
     ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    skip = page * limit
-    sort_column = getattr(Product, sort_by.value)
-    ordering = asc(sort_column) if order == Order.asc else desc(sort_column)
+    """
+    Return products for the current user.
 
-    q = (
+    IMPORTANT:
+    Search/filtering happens BEFORE pagination.
+
+    Example:
+        223 total products
+        search='hpa'
+        3 products match
+
+    Result:
+        page 1 contains those 3 products
+        total_pages = 1
+
+    We do NOT fetch 25 products first and then search those 25.
+    """
+
+    query = (
         db.query(Product)
-        .options(selectinload(Product.collections), selectinload(Product.category))
+        .options(
+            selectinload(Product.collections),
+            selectinload(Product.category),
+        )
         .filter(Product.user_id == current_user.id)
     )
 
+    # ---------------------------------------------------------------
+    # Category filter
+    # ---------------------------------------------------------------
+
     if category_id is not None:
-        q = q.filter(Product.category_id == category_id)
+        query = query.filter(Product.category_id == category_id)
+
+    # ---------------------------------------------------------------
+    # Collection filter
+    # ---------------------------------------------------------------
 
     if collection_id is not None:
-        q = q.join(Product.collections).filter(ProductCollection.id == collection_id)
+        query = (
+            query.join(Product.collections)
+            .filter(ProductCollection.id == collection_id)
+        )
 
-    total_count = q.count()
-    total_pages = (total_count + limit - 1) // limit
+    # ---------------------------------------------------------------
+    # Search
+    #
+    # This MUST happen before count(), offset(), and limit().
+    # ---------------------------------------------------------------
 
-    products = q.order_by(ordering).offset(skip).limit(limit).all()
-    # Ensure no negative leaks in the response list either
-    safe = []
-    for p in products:
-        if getattr(p, "quantity_in_stock", None) is not None:
-            fixed = _safe_qty(p.quantity_in_stock)
-            if fixed != p.quantity_in_stock:
-                p.quantity_in_stock = fixed
-        safe.append(p)
+    cleaned_search = search.strip() if search else ""
 
-    return {"products": [to_out(p) for p in safe], "total_pages": total_pages}
+    if cleaned_search:
+        search_pattern = f"%{cleaned_search}%"
+
+        query = query.filter(
+            or_(
+                Product.name.ilike(search_pattern),
+                Product.sku.ilike(search_pattern),
+                Product.description.ilike(search_pattern),
+            )
+        )
+
+    # ---------------------------------------------------------------
+    # Count AFTER all search/filter conditions have been applied.
+    # ---------------------------------------------------------------
+
+    total_count = query.count()
+
+    total_pages = (
+        (total_count + limit - 1) // limit
+        if total_count > 0
+        else 0
+    )
+
+    # ---------------------------------------------------------------
+    # Sort
+    # ---------------------------------------------------------------
+
+    sort_column = getattr(Product, sort_by.value)
+
+    if order == Order.asc:
+        ordering = asc(sort_column)
+    else:
+        ordering = desc(sort_column)
+
+    # Add ID as a deterministic secondary sort.
+    #
+    # This prevents unstable pagination when two products have the
+    # same name, stock quantity, or SKU.
+    if order == Order.asc:
+        secondary_order = asc(Product.id)
+    else:
+        secondary_order = desc(Product.id)
+
+    # ---------------------------------------------------------------
+    # Paginate LAST
+    # ---------------------------------------------------------------
+
+    skip = page * limit
+
+    products = (
+        query
+        .order_by(ordering, secondary_order)
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "products": [to_out(product) for product in products],
+        "total_pages": total_pages,
+    }
+
+
+# -------------------------------------------------------------------
+# Create product
+# -------------------------------------------------------------------
 
 @router.post("/", response_model=ProductOut)
 def create_product(
@@ -152,6 +270,7 @@ def create_product(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Validate category ownership.
     if payload.category_id is not None:
         category = (
             db.query(Category)
@@ -161,11 +280,25 @@ def create_product(
             )
             .first()
         )
-        if not category:
-            raise HTTPException(status_code=400, detail="Invalid category_id")
 
-    unit_cost = None if payload.use_category_purchase_cost else payload.unit_cost
-    sale_price = None if payload.use_category_sale_price else payload.sale_price
+        if not category:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid category_id",
+            )
+
+    # None means inherit from the category/pricing system.
+    unit_cost = (
+        None
+        if payload.use_category_purchase_cost
+        else payload.unit_cost
+    )
+
+    sale_price = (
+        None
+        if payload.use_category_sale_price
+        else payload.sale_price
+    )
 
     new_product = Product(
         user_id=current_user.id,
@@ -176,17 +309,33 @@ def create_product(
         unit_cost=unit_cost,
         sale_price=sale_price,
         category_id=payload.category_id,
-        quantity_in_stock=int(max(0, payload.quantity_in_stock or 0)),  # guard
+
+        # Preserve the quantity supplied by the schema.
+        #
+        # Negative quantities are intentionally supported by the
+        # inventory model for oversell/backorder workflows.
+        quantity_in_stock=int(payload.quantity_in_stock or 0),
     )
 
     db.add(new_product)
     db.flush()
 
-    _attach_collections(new_product, payload.collection_ids, db, current_user.id)
+    _attach_collections(
+        new_product,
+        payload.collection_ids,
+        db,
+        current_user.id,
+    )
 
     db.commit()
     db.refresh(new_product)
+
     return to_out(new_product)
+
+
+# -------------------------------------------------------------------
+# Update product
+# -------------------------------------------------------------------
 
 @router.patch("/{product_id}", response_model=ProductOut)
 def update_product(
@@ -195,17 +344,31 @@ def update_product(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    p = (
+    product = (
         db.query(Product)
-        .options(selectinload(Product.collections))
-        .filter(Product.id == product_id, Product.user_id == current_user.id)
+        .options(
+            selectinload(Product.collections),
+            selectinload(Product.category),
+        )
+        .filter(
+            Product.id == product_id,
+            Product.user_id == current_user.id,
+        )
         .first()
     )
-    if not p:
-        raise HTTPException(status_code=404, detail="Product not found")
+
+    if not product:
+        raise HTTPException(
+            status_code=404,
+            detail="Product not found",
+        )
+
+    # ---------------------------------------------------------------
+    # Category
+    # ---------------------------------------------------------------
 
     if payload.category_id is not None:
-        cat = (
+        category = (
             db.query(Category)
             .filter(
                 Category.id == payload.category_id,
@@ -213,40 +376,74 @@ def update_product(
             )
             .first()
         )
-        if not cat:
-            raise HTTPException(status_code=400, detail="Invalid category_id")
-        p.category_id = payload.category_id
+
+        if not category:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid category_id",
+            )
+
+        product.category_id = payload.category_id
+
+    # ---------------------------------------------------------------
+    # Basic fields
+    # ---------------------------------------------------------------
 
     if payload.name is not None:
-        p.name = payload.name
+        product.name = payload.name
+
     if payload.sku is not None:
-        p.sku = payload.sku
+        product.sku = payload.sku
+
     if payload.description is not None:
-        p.description = payload.description
+        product.description = payload.description
+
     if payload.notes is not None:
-        p.notes = payload.notes
+        product.notes = payload.notes
+
+    # Do NOT clamp inventory to zero.
     if payload.quantity_in_stock is not None:
-        p.quantity_in_stock = int(max(0, payload.quantity_in_stock))  # guard
+        product.quantity_in_stock = int(payload.quantity_in_stock)
+
+    # ---------------------------------------------------------------
+    # Purchase cost
+    # ---------------------------------------------------------------
 
     if payload.use_category_purchase_cost is True:
-        p.unit_cost = None
+        product.unit_cost = None
     elif payload.unit_cost is not None:
-        p.unit_cost = payload.unit_cost
+        product.unit_cost = payload.unit_cost
+
+    # ---------------------------------------------------------------
+    # Sale price
+    # ---------------------------------------------------------------
 
     if payload.use_category_sale_price is True:
-        p.sale_price = None
+        product.sale_price = None
     elif payload.sale_price is not None:
-        p.sale_price = payload.sale_price
+        product.sale_price = payload.sale_price
+
+    # ---------------------------------------------------------------
+    # Collections
+    # ---------------------------------------------------------------
 
     if payload.collection_ids is not None:
-        _attach_collections(p, payload.collection_ids, db, current_user.id)
-
-    # last guard before returning
-    p.quantity_in_stock = _safe_qty(p.quantity_in_stock)
+        _attach_collections(
+            product,
+            payload.collection_ids,
+            db,
+            current_user.id,
+        )
 
     db.commit()
-    db.refresh(p)
-    return to_out(p)
+    db.refresh(product)
+
+    return to_out(product)
+
+
+# -------------------------------------------------------------------
+# Delete product
+# -------------------------------------------------------------------
 
 @router.delete("/{product_id}")
 def delete_product(
@@ -254,17 +451,32 @@ def delete_product(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    p = (
+    product = (
         db.query(Product)
-        .filter(Product.id == product_id, Product.user_id == current_user.id)
+        .filter(
+            Product.id == product_id,
+            Product.user_id == current_user.id,
+        )
         .first()
     )
-    if not p:
-        raise HTTPException(status_code=404, detail="Product not found")
 
-    db.delete(p)
+    if not product:
+        raise HTTPException(
+            status_code=404,
+            detail="Product not found",
+        )
+
+    db.delete(product)
     db.commit()
-    return {"message": "Product deleted successfully"}
+
+    return {
+        "message": "Product deleted successfully",
+    }
+
+
+# -------------------------------------------------------------------
+# Get single product
+# -------------------------------------------------------------------
 
 @router.get("/{product_id}", response_model=ProductOut)
 def get_product(
@@ -272,14 +484,23 @@ def get_product(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    p = (
+    product = (
         db.query(Product)
-        .options(selectinload(Product.collections), selectinload(Product.category))
-        .filter(Product.id == product_id, Product.user_id == current_user.id)
+        .options(
+            selectinload(Product.collections),
+            selectinload(Product.category),
+        )
+        .filter(
+            Product.id == product_id,
+            Product.user_id == current_user.id,
+        )
         .first()
     )
-    if not p:
-        raise HTTPException(status_code=404, detail="Product not found")
 
-    p.quantity_in_stock = _safe_qty(p.quantity_in_stock)
-    return to_out(p)
+    if not product:
+        raise HTTPException(
+            status_code=404,
+            detail="Product not found",
+        )
+
+    return to_out(product)

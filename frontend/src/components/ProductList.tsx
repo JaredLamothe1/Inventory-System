@@ -1,5 +1,5 @@
 // src/pages/ProductList.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Pencil, Plus, Trash2, Check, X, Search, MoreVertical } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "@/api";
@@ -54,15 +54,18 @@ export default function ProductList() {
 
   // Product table data
   const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sortOption, setSortOption] = useState("name-asc");
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [refreshTick, setRefreshTick] = useState(0);
+  const requestIdRef = useRef(0);
 
   // Inline stock edit
   const [stockEditId, setStockEditId] = useState<number | null>(null);
@@ -107,43 +110,73 @@ export default function ProductList() {
       .then((r) => setCollections(r.data))
       .catch(() => setCollections([]));
   }, []);
+  /* -------- debounce product search -------- */
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+    }, 300);
 
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
   /* -------- products list (table) -------- */
   useEffect(() => {
+    const requestId = ++requestIdRef.current;
     const [sort_by, order] = sortOption.split("-");
-    const params: any = { page: currentPage - 1, limit: 25, sort_by, order };
+
+    const params: Record<string, string | number> = {
+      page: currentPage - 1,
+      limit: 25,
+      sort_by,
+      order,
+    };
+
+    if (debouncedSearch) params.search = debouncedSearch;
     if (selectedCatId != null) params.category_id = selectedCatId;
     if (selectedCollectionId != null) params.collection_id = selectedCollectionId;
 
-    setLoading(true);
+    // Only use the large loading state for the first load. During searches,
+    // keep the existing table mounted so the header/search bar never jumps.
+    if (initialLoading) {
+      setInitialLoading(true);
+    } else {
+      setSearching(true);
+    }
+
     api
       .get("/products/", { params })
       .then((r) => {
+        // Ignore stale responses if a newer search/filter request finished first.
+        if (requestId !== requestIdRef.current) return;
+
         setProducts(r.data.products || []);
         setTotalPages(Math.max(r.data.total_pages || 0, 1));
         setFetchError(null);
       })
       .catch((err) => {
+        if (requestId !== requestIdRef.current) return;
+
         console.error(err);
-        setProducts([]);
-        setTotalPages(1);
         setFetchError("Error fetching products.");
       })
-      .finally(() => setLoading(false));
-  }, [currentPage, sortOption, selectedCatId, selectedCollectionId, refreshTick]);
+      .finally(() => {
+        if (requestId !== requestIdRef.current) return;
 
-  // Reset page on search/filter change
+        setInitialLoading(false);
+        setSearching(false);
+      });
+  }, [
+    currentPage,
+    sortOption,
+    selectedCatId,
+    selectedCollectionId,
+    debouncedSearch,
+    refreshTick,
+  ]);
+
+  // Reset to page 1 when the actual server-side search/filter changes.
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedCatId, selectedCollectionId]);
-
-  const filteredProducts = useMemo(
-    () =>
-      products.filter((p) =>
-        (p.name + " " + (p.description ?? "")).toLowerCase().includes(searchQuery.toLowerCase())
-      ),
-    [products, searchQuery]
-  );
+  }, [debouncedSearch, selectedCatId, selectedCollectionId]);
 
   /* ------------- stock helpers ------------ */
   const handleStockUpdate = (product: Product) => {
@@ -217,7 +250,7 @@ export default function ProductList() {
   const selectAllVisibleForWizard = () => {
     setSelectedProductIds((prev) => {
       const nxt = new Set(prev);
-      filteredProducts.forEach((p) => nxt.add(p.id));
+      products.forEach((p) => nxt.add(p.id));
       return nxt;
     });
   };
@@ -225,7 +258,7 @@ export default function ProductList() {
   const clearAllVisibleForWizard = () => {
     setSelectedProductIds((prev) => {
       const nxt = new Set(prev);
-      filteredProducts.forEach((p) => nxt.delete(p.id));
+      products.forEach((p) => nxt.delete(p.id));
       return nxt;
     });
   };
@@ -565,14 +598,23 @@ export default function ProductList() {
             <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">Products</h1>
               <div className="flex w-full flex-col-reverse items-stretch gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
-                <div className="relative">
+                <div className="relative w-full shrink-0 sm:w-80">
                   <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
                   <input
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search name or description…"
-                    className="w-full rounded-lg border border-slate-300 bg-white pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:w-80"
+                    placeholder="Search name, SKU, or description…"
+                    className="box-border w-full rounded-lg border border-slate-300 bg-white py-2 pl-8 pr-20 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+
+                  <span
+                    className={`pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 ${
+                      searching ? "visible" : "invisible"
+                    }`}
+                  >
+                    Searching…
+                  </span>
                 </div>
 
                 <select
@@ -604,9 +646,9 @@ export default function ProductList() {
           </div>
 
           {/* Loading / Table */}
-          {loading ? (
+          {initialLoading ? (
             <div className="py-16 text-center text-slate-600">Loading…</div>
-          ) : filteredProducts.length === 0 ? (
+          ) : products.length === 0 ? (
             <div className="space-y-4 py-16 text-center text-slate-600">
               <p>No products found.</p>
               <button
@@ -631,7 +673,7 @@ export default function ProductList() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredProducts.map((p) => {
+                  {products.map((p) => {
                     const checked = selectedProductIds.has(p.id);
                     const canNavigate = groupStep !== 1;
 

@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models import Product, PurchaseOrder, PurchaseOrderItem
-from app.routes.auth import get_current_user  # provides the logged-in User
+from app.models.inventory_log import InventoryLog
+from app.routes.auth import get_current_user
 
 router = APIRouter(prefix="/purchase_orders", tags=["purchase_orders"])
 
@@ -24,8 +25,6 @@ class POItemCreate(BaseModel):
 
 class PurchaseOrderCreate(BaseModel):
     created_at: Optional[date] = None
-    # Keep both costs for now; you can send handling_cost=0 from the UI if
-    # you're folding it into shipping_cost.
     shipping_cost: float = 0.0
     handling_cost: float = 0.0
     items: List[POItemCreate]
@@ -65,10 +64,8 @@ class PurchaseOrderOut(BaseModel):
 # -----------------------------
 def _category_name_of(prod: Optional[Product]) -> Optional[str]:
     try:
-        # prefer relationship if present
         return getattr(getattr(prod, "category", None), "name", None)
     except Exception:
-        # fall back to denormalized name if your model uses it
         return getattr(prod, "category_name", None) if prod else None
 
 
@@ -78,6 +75,7 @@ def _hydrate_po_out(db: Session, po: PurchaseOrder) -> PurchaseOrderOut:
 
     for it in po.items:
         prod = db.get(Product, it.product_id)
+
         items.append(
             POItemOut(
                 id=it.id,
@@ -88,14 +86,15 @@ def _hydrate_po_out(db: Session, po: PurchaseOrder) -> PurchaseOrderOut:
                 unit_cost=it.unit_cost,
             )
         )
+
         subtotal += it.quantity * it.unit_cost
 
     grand = subtotal + float(getattr(po, "shipping_cost", 0.0)) + float(
         getattr(po, "handling_cost", 0.0)
     )
 
-    # created_at might be a date column; normalize to datetime for the response model
     created = po.created_at
+
     if isinstance(created, date) and not isinstance(created, datetime):
         created = datetime.combine(created, datetime.min.time())
 
@@ -112,8 +111,68 @@ def _hydrate_po_out(db: Session, po: PurchaseOrder) -> PurchaseOrderOut:
 
 def _ensure_owned(po: Optional[PurchaseOrder], user_id: int) -> PurchaseOrder:
     if not po or po.user_id != user_id:
-        raise HTTPException(status_code=404, detail="Purchase order not found.")
+        raise HTTPException(
+            status_code=404,
+            detail="Purchase order not found.",
+        )
+
     return po
+
+
+def _get_owned_product(
+    db: Session,
+    product_id: int,
+    user_id: int,
+) -> Product:
+    """
+    Fetch a product and ensure that it belongs to the logged-in user.
+    """
+    product = (
+        db.query(Product)
+        .filter(
+            Product.id == product_id,
+            Product.user_id == user_id,
+        )
+        .first()
+    )
+
+    if not product:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Product {product_id} not found.",
+        )
+
+    return product
+
+
+def _adjust_inventory(
+    db: Session,
+    product: Product,
+    amount: int,
+    change_type: str,
+    note: str,
+):
+    """
+    Apply an inventory change and record it in InventoryLog.
+
+    Positive amount -> inventory increases
+    Negative amount -> inventory decreases
+    """
+    if amount == 0:
+        return
+
+    current_quantity = int(product.quantity_in_stock or 0)
+
+    product.quantity_in_stock = current_quantity + amount
+
+    db.add(
+        InventoryLog(
+            product_id=product.id,
+            change_type=change_type,
+            change_amount=amount,
+            note=note,
+        )
+    )
 
 
 # -----------------------------
@@ -131,6 +190,7 @@ def list_purchase_orders(
         .order_by(PurchaseOrder.created_at.desc())
         .all()
     )
+
     return [_hydrate_po_out(db, po) for po in pos]
 
 
@@ -143,49 +203,103 @@ def get_purchase_order(
     po = (
         db.query(PurchaseOrder)
         .options(joinedload(PurchaseOrder.items))
-        .filter(PurchaseOrder.id == po_id, PurchaseOrder.user_id == current_user.id)
+        .filter(
+            PurchaseOrder.id == po_id,
+            PurchaseOrder.user_id == current_user.id,
+        )
         .first()
     )
+
     po = _ensure_owned(po, current_user.id)
+
     return _hydrate_po_out(db, po)
 
 
-@router.post("/", response_model=PurchaseOrderOut, status_code=status.HTTP_201_CREATED)
+# -----------------------------
+# CREATE PURCHASE ORDER
+# -----------------------------
+@router.post(
+    "/",
+    response_model=PurchaseOrderOut,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_purchase_order(
     payload: PurchaseOrderCreate,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    # Build the PO
-    po = PurchaseOrder(
-        created_at=(
-            datetime.combine(payload.created_at, datetime.min.time())
-            if payload.created_at
-            else datetime.utcnow()
-        ),
-        user_id=current_user.id,  # <<< FIX: ensure NOT NULL user_id
-        shipping_cost=payload.shipping_cost,
-        handling_cost=payload.handling_cost,
-    )
-    db.add(po)
-    db.flush()  # ensure po.id
+    try:
+        po = PurchaseOrder(
+            created_at=(
+                datetime.combine(payload.created_at, datetime.min.time())
+                if payload.created_at
+                else datetime.utcnow()
+            ),
+            user_id=current_user.id,
+            shipping_cost=payload.shipping_cost,
+            handling_cost=payload.handling_cost,
+        )
 
-    # Insert items (use order_id, not purchase_order_id)
-    for it in payload.items:
-        db.add(
-            PurchaseOrderItem(
-                order_id=po.id,  # <<< FIX: correct FK column
+        db.add(po)
+
+        # Flush so po.id exists before adding items/logs.
+        db.flush()
+
+        for it in payload.items:
+            product = _get_owned_product(
+                db,
+                it.product_id,
+                current_user.id,
+            )
+
+            # Add PO line
+            po_item = PurchaseOrderItem(
+                order_id=po.id,
                 product_id=it.product_id,
                 quantity=it.quantity,
                 unit_cost=it.unit_cost,
             )
+
+            db.add(po_item)
+
+            # Purchase order represents received inventory,
+            # so immediately add quantity to stock.
+            _adjust_inventory(
+                db=db,
+                product=product,
+                amount=it.quantity,
+                change_type="purchase",
+                note=f"Purchase order #{po.id} created",
+            )
+
+        db.commit()
+
+        # Reload with items after commit
+        po = (
+            db.query(PurchaseOrder)
+            .options(joinedload(PurchaseOrder.items))
+            .filter(PurchaseOrder.id == po.id)
+            .first()
         )
 
-    db.commit()
-    db.refresh(po)
-    return _hydrate_po_out(db, po)
+        return _hydrate_po_out(db, po)
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create purchase order.",
+        )
 
 
+# -----------------------------
+# UPDATE PURCHASE ORDER
+# -----------------------------
 @router.put("/{po_id}", response_model=PurchaseOrderOut)
 def update_purchase_order(
     po_id: int,
@@ -193,52 +307,174 @@ def update_purchase_order(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    po = (
-        db.query(PurchaseOrder)
-        .options(joinedload(PurchaseOrder.items))
-        .filter(PurchaseOrder.id == po_id, PurchaseOrder.user_id == current_user.id)
-        .first()
-    )
-    po = _ensure_owned(po, current_user.id)
-
-    # Update simple fields
-    if payload.created_at is not None:
-        po.created_at = datetime.combine(payload.created_at, datetime.min.time())
-    po.shipping_cost = payload.shipping_cost
-    po.handling_cost = payload.handling_cost
-
-    # Replace items (delete by order_id!)
-    db.query(PurchaseOrderItem).filter(PurchaseOrderItem.order_id == po.id).delete()
-    for it in payload.items:
-        db.add(
-            PurchaseOrderItem(
-                order_id=po.id,  # <<< FIX: correct FK column
-                product_id=it.product_id,
-                quantity=it.quantity,
-                unit_cost=it.unit_cost,
+    try:
+        po = (
+            db.query(PurchaseOrder)
+            .options(joinedload(PurchaseOrder.items))
+            .filter(
+                PurchaseOrder.id == po_id,
+                PurchaseOrder.user_id == current_user.id,
             )
+            .first()
         )
 
-    db.commit()
-    db.refresh(po)
-    return _hydrate_po_out(db, po)
+        po = _ensure_owned(po, current_user.id)
+
+        # -------------------------------------------------
+        # STEP 1:
+        # Reverse inventory effects of the OLD PO items.
+        # -------------------------------------------------
+        old_items = list(po.items)
+
+        for old_item in old_items:
+            product = _get_owned_product(
+                db,
+                old_item.product_id,
+                current_user.id,
+            )
+
+            _adjust_inventory(
+                db=db,
+                product=product,
+                amount=-old_item.quantity,
+                change_type="revert_purchase",
+                note=f"Purchase order #{po.id} edited - old quantity removed",
+            )
+
+        # -------------------------------------------------
+        # STEP 2:
+        # Remove OLD PO item records.
+        # -------------------------------------------------
+        for old_item in old_items:
+            db.delete(old_item)
+
+        # -------------------------------------------------
+        # STEP 3:
+        # Update PO header information.
+        # -------------------------------------------------
+        if payload.created_at is not None:
+            po.created_at = datetime.combine(
+                payload.created_at,
+                datetime.min.time(),
+            )
+
+        po.shipping_cost = payload.shipping_cost
+        po.handling_cost = payload.handling_cost
+
+        # -------------------------------------------------
+        # STEP 4:
+        # Add NEW PO items and apply their inventory.
+        # -------------------------------------------------
+        for it in payload.items:
+            product = _get_owned_product(
+                db,
+                it.product_id,
+                current_user.id,
+            )
+
+            db.add(
+                PurchaseOrderItem(
+                    order_id=po.id,
+                    product_id=it.product_id,
+                    quantity=it.quantity,
+                    unit_cost=it.unit_cost,
+                )
+            )
+
+            _adjust_inventory(
+                db=db,
+                product=product,
+                amount=it.quantity,
+                change_type="purchase",
+                note=f"Purchase order #{po.id} edited - new quantity added",
+            )
+
+        db.commit()
+
+        # Reload clean relationship state
+        po = (
+            db.query(PurchaseOrder)
+            .options(joinedload(PurchaseOrder.items))
+            .filter(PurchaseOrder.id == po.id)
+            .first()
+        )
+
+        return _hydrate_po_out(db, po)
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to update purchase order.",
+        )
 
 
-@router.delete("/{po_id}", status_code=status.HTTP_204_NO_CONTENT)
+# -----------------------------
+# DELETE PURCHASE ORDER
+# -----------------------------
+@router.delete(
+    "/{po_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 def delete_purchase_order(
     po_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    po = (
-        db.query(PurchaseOrder)
-        .filter(PurchaseOrder.id == po_id, PurchaseOrder.user_id == current_user.id)
-        .first()
-    )
-    po = _ensure_owned(po, current_user.id)
+    try:
+        po = (
+            db.query(PurchaseOrder)
+            .options(joinedload(PurchaseOrder.items))
+            .filter(
+                PurchaseOrder.id == po_id,
+                PurchaseOrder.user_id == current_user.id,
+            )
+            .first()
+        )
 
-    # Delete children first to be explicit (some DBs require it)
-    db.query(PurchaseOrderItem).filter(PurchaseOrderItem.order_id == po.id).delete()
-    db.delete(po)
-    db.commit()
-    return None
+        po = _ensure_owned(po, current_user.id)
+
+        # Reverse inventory originally added by this PO.
+        for item in list(po.items):
+            product = _get_owned_product(
+                db,
+                item.product_id,
+                current_user.id,
+            )
+
+            _adjust_inventory(
+                db=db,
+                product=product,
+                amount=-item.quantity,
+                change_type="revert_purchase",
+                note=f"Purchase order #{po.id} deleted",
+            )
+
+        # PurchaseOrder.items has delete-orphan cascade.
+        db.delete(po)
+
+        db.commit()
+
+        return None
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except Exception as e:
+        db.rollback()
+
+        print(
+            f"[DELETE PO ERROR] PO #{po_id}: "
+            f"{type(e).__name__}: {e}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete purchase order: {str(e)}",
+        )
